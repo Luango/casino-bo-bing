@@ -185,6 +185,58 @@ const camera = new THREE.PerspectiveCamera(58, window.innerWidth/window.innerHei
 camera.position.set(0, 6.0, 8.4);
 camera.lookAt(0, 0.0, -0.7);
 
+// ============================================================ MULTI-VIEW CAMERA SYSTEM
+// Distinct camera positions for each game phase, lerped between Inscryption-style.
+const VIEWS = {
+  betting: {
+    pos:  new THREE.Vector3(0,   6.0,  8.4),
+    look: new THREE.Vector3(0,   0.0, -0.7),
+    fov: 58,
+    speed: 2.4,
+  },
+  // Lever-pull / dice tumbling — camera dives in over the bowl
+  rolling: {
+    pos:  new THREE.Vector3(0,   2.6,  3.2),
+    look: new THREE.Vector3(0,   0.55, 0.0),
+    fov: 48,
+    speed: 1.8,
+  },
+  // Result reveal — pulled back and slightly higher, dramatic wide angle to take in the table
+  payout: {
+    pos:  new THREE.Vector3(0,   7.2,  9.4),
+    look: new THREE.Vector3(0,   0.0, -0.8),
+    fov: 64,
+    speed: 2.6,
+  },
+  // Brief look at the dealer character (used on jackpot / big wins)
+  dealer: {
+    pos:  new THREE.Vector3(0,   3.6,  2.2),
+    look: new THREE.Vector3(0,   2.95, -4.6),
+    fov: 46,
+    speed: 2.2,
+  },
+};
+
+const camView = {
+  current: 'betting',
+  posVec:     new THREE.Vector3().copy(VIEWS.betting.pos),
+  lookVec:    new THREE.Vector3().copy(VIEWS.betting.look),
+  targetPos:  new THREE.Vector3().copy(VIEWS.betting.pos),
+  targetLook: new THREE.Vector3().copy(VIEWS.betting.look),
+  targetFov:  58,
+  speed: 2.4,
+};
+
+function setView(name) {
+  const v = VIEWS[name];
+  if (!v) return;
+  camView.current = name;
+  camView.targetPos.copy(v.pos);
+  camView.targetLook.copy(v.look);
+  camView.targetFov = v.fov;
+  camView.speed = v.speed;
+}
+
 // ----- Lights -----
 const ambient = new THREE.AmbientLight(0xff8060, 0.08);
 scene.add(ambient);
@@ -1520,6 +1572,7 @@ let _rollAnim = null;
 async function triggerRoll() {
   state.lastBets = { ...state.bets };
   state.phase = "rolling";
+  setView('rolling');                  // dive the camera in over the bowl
   hideSpeech(); await sleep(150); speak("locked");
   await sleep(550); speak("rolling");
 
@@ -1559,6 +1612,7 @@ async function triggerRoll() {
 
 async function settle(finalDice) {
   state.phase = "settling";
+  setView('payout');                   // pull back to show the table + winning zone
   const result = classify(finalDice);
   const sides = classifySides(finalDice);
   const mainTier = result.tier;
@@ -1644,17 +1698,30 @@ async function settle(finalDice) {
     const en = mainTier === "supreme" ? "JACKPOT WINNER" : tierDef.en;
     showWinOverlay(cn, en, totalWin);
     spawnWinParticles(mainTier === "supreme" ? 140 : 70);
+    // Jackpot gets a dramatic cut to the dealer character before returning to payout
+    if (mainTier === "supreme") {
+      await sleep(900);
+      setView('dealer');
+      await sleep(1500);
+      setView('payout');
+      await sleep(1400);
+    } else {
+      await sleep(3800);
+    }
   } else if (totalWin > 0) {
     showWinOverlay("中奖", "WINNER", totalWin);
     spawnWinParticles(40);
+    await sleep(3800);
+  } else {
+    await sleep(3800);
   }
 
-  await sleep(3800);
   resetRound();
 }
 
 function resetRound() {
   state.phase = "betting";
+  setView('betting');                   // back to the table overview for the next round
   hideWinOverlay();
   clearAllChips();
   for (const g of Object.values(zoneByTier)) {
@@ -1770,9 +1837,23 @@ function animate() {
     }
   }
 
-  // Subtle camera breathing
-  camera.position.y = 4.2 + Math.sin(elapsed * 0.5) * 0.04;
-  camera.lookAt(0, 0.3, -0.5);
+  // Multi-view camera lerp: smoothly glide to the active view (betting/rolling/payout/dealer)
+  const lerp = 1 - Math.exp(-dt * camView.speed);
+  camView.posVec.lerp(camView.targetPos, lerp);
+  camView.lookVec.lerp(camView.targetLook, lerp);
+  camera.position.copy(camView.posVec);
+  // Add subtle breathing on top of the lerped position
+  camera.position.y += Math.sin(elapsed * 0.5) * 0.04;
+  // Tiny camera shake during the active throw for impact
+  if (state.phase === 'rolling') {
+    camera.position.x += (Math.random() - 0.5) * 0.018;
+    camera.position.y += (Math.random() - 0.5) * 0.018;
+  }
+  camera.lookAt(camView.lookVec);
+  if (Math.abs(camera.fov - camView.targetFov) > 0.05) {
+    camera.fov += (camView.targetFov - camera.fov) * lerp;
+    camera.updateProjectionMatrix();
+  }
 
   renderer.render(scene, camera);
   requestAnimationFrame(animate);
