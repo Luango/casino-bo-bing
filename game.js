@@ -76,6 +76,96 @@ const state = {
   _lastChip: 25,
 };
 
+// ============================================================ AUDIO
+// CC0 sound effects by Kenney (casino + interface packs). Files live in audio/sfx/.
+// Each named cue points at 1+ files; a pool of HTMLAudio voices per file lets
+// overlapping events (six dice in 1.5s, repeated chip drops) play without cutting
+// each other off. First user gesture unlocks playback to satisfy browser autoplay.
+const AUDIO = (() => {
+  const BASE = 'audio/sfx/';
+  const LIB = {
+    chipPlace:    ['chip-place-1.ogg', 'chip-place-2.ogg', 'chip-place-3.ogg'],
+    chipPickup:   ['chip-pickup.ogg'],
+    chipHandle:   ['chip-handle.ogg'],
+    diceGrab:     ['dice-grab.ogg'],
+    diceShake:    ['dice-shake.ogg'],
+    diceRoll:     ['dice-roll.ogg'],
+    dieThrow:     ['die-throw-1.ogg','die-throw-2.ogg','die-throw-3.ogg','die-throw-4.ogg'],
+    leverPull:    ['lever-pull.ogg'],
+    uiClick:      ['ui-click.ogg'],
+    winSmall:     ['win-small.ogg'],
+    winBig:       ['win-big.ogg'],
+    winJackpot:   ['win-jackpot.ogg'],
+    jackpotChime: ['jackpot-chime.ogg'],
+    lose:         ['lose.ogg'],
+  };
+
+  const POOL_SIZE = 4;
+  const pools = new Map();
+  for (const list of Object.values(LIB)) {
+    for (const f of list) {
+      if (pools.has(f)) continue;
+      const voices = [];
+      for (let i = 0; i < POOL_SIZE; i++) {
+        const el = new Audio(BASE + f);
+        el.preload = 'auto';
+        voices.push(el);
+      }
+      pools.set(f, { voices, next: 0 });
+    }
+  }
+
+  let muted = false;
+  let masterVol = 0.7;
+  let unlocked = false;
+
+  function unlock() {
+    if (unlocked) return;
+    unlocked = true;
+    // Silently kick every pool once so subsequent plays aren't blocked by autoplay policy
+    for (const { voices } of pools.values()) {
+      const v = voices[0];
+      const prevVol = v.volume;
+      v.volume = 0;
+      v.play().then(() => { v.pause(); v.currentTime = 0; v.volume = prevVol; }).catch(()=>{ v.volume = prevVol; });
+    }
+  }
+  window.addEventListener('pointerdown', unlock, { once: true });
+  window.addEventListener('keydown', unlock, { once: true });
+
+  function play(name, opts) {
+    if (muted) return;
+    const list = LIB[name];
+    if (!list) return;
+    const vol = opts && opts.vol != null ? opts.vol : 1.0;
+    const rate = opts && opts.rate != null ? opts.rate : 1.0;
+    const file = list[Math.floor(Math.random() * list.length)];
+    const pool = pools.get(file);
+    const el = pool.voices[pool.next];
+    pool.next = (pool.next + 1) % pool.voices.length;
+    try {
+      el.currentTime = 0;
+      el.volume = Math.max(0, Math.min(1, masterVol * vol));
+      el.playbackRate = rate;
+      el.play().catch(()=>{});
+    } catch (_) { /* swallow */ }
+  }
+
+  function setMute(m) { muted = m; }
+  function isMuted() { return muted; }
+  function setMasterVolume(v) { masterVol = Math.max(0, Math.min(1, v)); }
+
+  return { play, setMute, isMuted, setMasterVolume, unlock };
+})();
+
+// Press M to toggle sound on/off.
+window.addEventListener('keydown', e => {
+  if (e.key === 'm' || e.key === 'M') {
+    AUDIO.setMute(!AUDIO.isMuted());
+    toast(AUDIO.isMuted() ? 'SOUND OFF · 静音' : 'SOUND ON · 音效');
+  }
+});
+
 // ============================================================ HUD DOM
 const $ = (s) => document.querySelector(s);
 const elBalance   = $("#balanceAmount");
@@ -693,10 +783,12 @@ world.defaultContactMaterial.contactEquationRelaxation = 3;
 const _diceMat  = new CANNON.Material('dice');
 const _floorMat = new CANNON.Material('floor');
 world.addContactMaterial(new CANNON.ContactMaterial(_diceMat, _floorMat, {
-  friction: 0.35, restitution: 0.38,
+  friction: 0.45, restitution: 0.30,
 }));
+// Higher dice-on-dice friction + very low restitution so a die can't comfortably
+// rest on top of another one — it slides off onto the felt instead.
 world.addContactMaterial(new CANNON.ContactMaterial(_diceMat, _diceMat, {
-  friction: 0.20, restitution: 0.30,
+  friction: 0.55, restitution: 0.12,
 }));
 
 // Felt floor — horizontal plane at the table surface (y ≈ 0.01)
@@ -762,31 +854,44 @@ function parkDice() {
   }
 }
 
+// Pre-allocated 2x3 grid of drop columns so each die lands in its own cell
+// (prevents stacking when six dice are dropped sequentially into the same area).
+const SPAWN_GRID = [
+  [-0.85, -0.55],
+  [ 0.00, -0.62],
+  [ 0.85, -0.55],
+  [-0.85,  0.55],
+  [ 0.00,  0.62],
+  [ 0.85,  0.55],
+];
+
 // Drop a single die onto the felt with light initial velocity + heavy spin.
-// The die appears high above the table and free-falls dramatically.
+// The die appears high above its assigned grid cell and free-falls dramatically.
 function releaseDie(i) {
   const body = diceBodies[i];
-  // Spawn point: spread around the arena centre with random offset, well above the table
-  const ang = (i / diceBodies.length) * Math.PI * 2 + (Math.random() - 0.5) * 0.6;
-  const rad = 0.15 + Math.random() * 0.30;
+  const [gx, gz] = SPAWN_GRID[i];
+  const jx = (Math.random() - 0.5) * 0.18;
+  const jz = (Math.random() - 0.5) * 0.18;
   body.position.set(
-    Math.cos(ang) * rad,
+    gx + jx,
     2.6 + Math.random() * 0.4,                          // high above the felt — dramatic fall
-    Math.sin(ang) * rad
+    gz + jz
   );
   const q = new CANNON.Quaternion();
   q.setFromEuler(Math.random()*Math.PI*2, Math.random()*Math.PI*2, Math.random()*Math.PI*2, 'XYZ');
   body.quaternion.copy(q);
-  // Gentle initial push + heavy spin; gravity does the dramatic work
+  // Counter the spawn jitter so each die nudges back toward its grid cell.
+  // Gentle downward push, gravity does the dramatic work.
   body.velocity.set(
-    (Math.random() - 0.5) * 1.4,
-    -1.0 - Math.random() * 1.4,
-    (Math.random() - 0.5) * 1.4
+    -jx * 1.5,
+    -1.0 - Math.random() * 1.2,
+    -jz * 1.5
   );
+  // Heavy spin while in the air; friction kills it quickly on the felt
   body.angularVelocity.set(
-    (Math.random() - 0.5) * 30,
-    (Math.random() - 0.5) * 30,
-    (Math.random() - 0.5) * 30
+    (Math.random() - 0.5) * 26,
+    (Math.random() - 0.5) * 26,
+    (Math.random() - 0.5) * 26
   );
   body.wakeUp();
   // Sync mesh transform so it appears in the right place the moment it's revealed
@@ -796,6 +901,8 @@ function releaseDie(i) {
   // Brief pop-in scale animation for extra drama
   dice[i].scale.set(0.6, 0.6, 0.6);
   dice[i].userData.popIn = { t: 0, dur: 0.18 };
+  // Audible "thunk" per die — varied pitch so six in a row feels percussive, not robotic
+  AUDIO.play('dieThrow', { vol: 0.85, rate: 0.92 + Math.random() * 0.16 });
 }
 
 // Sequentially drop all 6 dice with a delay between each one (dramatic intro).
@@ -826,6 +933,67 @@ function readDieValue(body) {
     if (worldVec.y > bestY) { bestY = worldVec.y; bestValue = f.value; }
   }
   return bestValue;
+}
+
+// Poll until every die is sleeping (or below a tiny velocity threshold), capped by
+// maxMs. minMs ensures we always tumble visibly even if a die settles instantly.
+async function waitForDiceToRest(maxMs, minMs = 0) {
+  const tStart = performance.now();
+  while (true) {
+    await sleep(120);
+    const elapsedMs = performance.now() - tStart;
+    if (elapsedMs > maxMs) return;
+    if (elapsedMs < minMs) continue;
+    const allResting = diceBodies.every(b =>
+      b.sleepState === CANNON.Body.SLEEPING ||
+      (b.velocity.lengthSquared() < 0.002 && b.angularVelocity.lengthSquared() < 0.01)
+    );
+    if (allResting) return;
+  }
+}
+
+// A flat-on-the-felt die has its centre at y ≈ floorY + halfSize = 0.01 + 0.25 = 0.26.
+// Anything sitting noticeably higher than that must be perched on another die.
+const FLAT_Y_MAX = 0.26 + 0.06;          // generous tolerance
+
+// Detect any die whose centre is higher than FLAT_Y_MAX (i.e. it's resting on top
+// of another die) and apply a horizontal impulse + small upward kick so it slides
+// off onto bare felt. Returns true if any die was nudged.
+function nudgeStackedDice() {
+  let nudged = false;
+  for (let i = 0; i < diceBodies.length; i++) {
+    const body = diceBodies[i];
+    if (body.position.y <= FLAT_Y_MAX) continue;
+
+    // Pick a horizontal direction that points outward from the centre of the
+    // pile so the die slides toward open felt rather than into another die.
+    let dx = body.position.x;
+    let dz = body.position.z;
+    const len = Math.hypot(dx, dz);
+    if (len < 0.01) {
+      // Right above the centre — pick a random direction
+      const a = Math.random() * Math.PI * 2;
+      dx = Math.cos(a);
+      dz = Math.sin(a);
+    } else {
+      dx /= len;
+      dz /= len;
+    }
+
+    body.wakeUp();
+    body.velocity.set(
+      dx * (1.8 + Math.random() * 0.8),
+      0.9 + Math.random() * 0.4,
+      dz * (1.8 + Math.random() * 0.8)
+    );
+    body.angularVelocity.set(
+      (Math.random() - 0.5) * 14,
+      (Math.random() - 0.5) * 14,
+      (Math.random() - 0.5) * 14
+    );
+    nudged = true;
+  }
+  return nudged;
 }
 
 // Pre-simulate so dice settle into a natural starting pose before the player sees the scene
@@ -1405,6 +1573,10 @@ function placeChipOnZone(tier, value) {
   stack.push(chip);
 
   state.bets[tier] = (state.bets[tier] || 0) + value;
+
+  // Bigger stack → slightly higher pitch so repeated placements feel layered, not flat
+  const pitch = 0.94 + Math.min(0.18, stack.length * 0.025) + (Math.random() - 0.5) * 0.04;
+  AUDIO.play('chipPlace', { rate: pitch });
 }
 
 function clearAllChips() {
@@ -1522,6 +1694,7 @@ function onContextMenu(e) {
   if (popped) group.remove(popped);
   if (state.bets[tier] <= 0) delete state.bets[tier];
   updateHud();
+  AUDIO.play('chipPickup', { vol: 0.8, rate: 0.95 + Math.random() * 0.1 });
 }
 
 function moveDragPreview(x, y) {
@@ -1537,13 +1710,16 @@ canvas.addEventListener("contextmenu", onContextMenu);
 // Clear / Repeat buttons
 $("#btnClear").addEventListener("click", () => {
   if (state.phase !== "betting") return;
+  AUDIO.play('uiClick', { vol: 0.7 });
   const refund = Object.values(state.bets).reduce((a,b)=>a+b, 0);
+  if (refund > 0) AUDIO.play('chipHandle', { vol: 0.8 });
   state.balance += refund;
   clearAllChips();
   updateHud();
 });
 $("#btnRepeat").addEventListener("click", () => {
   if (state.phase !== "betting") return;
+  AUDIO.play('uiClick', { vol: 0.7 });
   if (!Object.keys(state.lastBets).length) { toast("NO PREVIOUS BET · 无上注"); return; }
   const refund = Object.values(state.bets).reduce((a,b)=>a+b, 0);
   state.balance += refund;
@@ -1579,6 +1755,7 @@ function pullLever() {
   const total = Object.values(state.bets).reduce((a,b)=>a+b, 0);
   if (total === 0) { toast("PLACE A BET FIRST · 请先下注"); return; }
   _leverAnimState = "pulling";
+  AUDIO.play('leverPull', { vol: 0.9 });
 
   const startT = performance.now();
   function down() {
@@ -1608,7 +1785,9 @@ async function triggerRoll() {
   state.phase = "rolling";
   setView('rolling');                  // dive the camera in over the bowl
   hideSpeech(); await sleep(150); speak("locked");
-  await sleep(550); speak("rolling");
+  AUDIO.play('diceGrab', { vol: 0.8 });
+  await sleep(400); AUDIO.play('diceShake', { vol: 0.7 });
+  await sleep(150); speak("rolling");
 
   if (state.bets.jackpot_bet) state.jackpot += state.bets.jackpot_bet * 0.7;
   state.jackpot += Math.floor(Math.random() * 60) + 40;
@@ -1621,19 +1800,13 @@ async function triggerRoll() {
   await throwDice();
 
   // Now wait for the last few dice to come to rest (or hit the max-wait timeout)
-  const MAX_WAIT_MS = 5500;
-  const MIN_TUMBLE_MS = 600;    // sequential drop already gives ~1.6s of action
-  const tStart = performance.now();
-  while (true) {
-    await sleep(120);
-    const elapsedMs = performance.now() - tStart;
-    if (elapsedMs > MAX_WAIT_MS) break;
-    if (elapsedMs < MIN_TUMBLE_MS) continue;
-    const allResting = diceBodies.every(b =>
-      b.sleepState === CANNON.Body.SLEEPING ||
-      (b.velocity.lengthSquared() < 0.002 && b.angularVelocity.lengthSquared() < 0.01)
-    );
-    if (allResting) break;
+  await waitForDiceToRest(5500, 600);
+
+  // Post-settle: if any die ended up stacked on top of another, nudge it off
+  // and let physics resolve again. Up to 3 attempts before we accept the result.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (!nudgeStackedDice()) break;
+    await waitForDiceToRest(2200, 250);
   }
 
   // Force-sleep any straggler so its quaternion is stable for the readout
@@ -1737,19 +1910,26 @@ async function settle(finalDice) {
     spawnWinParticles(mainTier === "supreme" ? 140 : 70);
     // Jackpot gets a dramatic cut to the dealer character before returning to payout
     if (mainTier === "supreme") {
+      AUDIO.play('winJackpot', { vol: 1.0 });
+      setTimeout(() => AUDIO.play('jackpotChime', { vol: 0.9 }), 380);
+      setTimeout(() => AUDIO.play('jackpotChime', { vol: 0.85, rate: 1.18 }), 760);
       await sleep(900);
       setView('dealer');
       await sleep(1500);
       setView('payout');
       await sleep(1400);
     } else {
+      AUDIO.play(totalWin >= 500 ? 'winBig' : 'winSmall', { vol: 0.95 });
       await sleep(3800);
     }
   } else if (totalWin > 0) {
+    // Side-bet pushback / small consolation win (no main tier hit but side bets paid)
     showWinOverlay("中奖", "WINNER", totalWin);
     spawnWinParticles(40);
+    AUDIO.play('winSmall', { vol: 0.9 });
     await sleep(3800);
   } else {
+    AUDIO.play('lose', { vol: 0.7 });
     await sleep(3800);
   }
 
