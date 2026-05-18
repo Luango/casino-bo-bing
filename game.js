@@ -42,28 +42,28 @@ const LINES = {
 
 // Bet zone layout on the table (top-down coordinates)
 // X: -3.6 .. 3.6 (table radius ~4.2). Z: -3.0 (far/dealer) .. +3.0 (near/player)
-// Roulette / blackjack-style layout: the dice arena sits at the dealer end of
-// the table (z ≈ -1.4), and ALL bet zones are organized in 4 clean rows on the
-// player side, with the lowest-payout/side bets closest to the player (like
-// roulette "outside bets") and the high tiers nearest the arena.
+// Roulette-style unified layout: 4-column grid (x = ±0.80, ±2.40) with three
+// "wide" zones in the middle column-span — SUPREME (jackpot) and SHOWMAN / MISS
+// (basic-tier halves of the table). All rows align on the same 4 column centres
+// so the layout reads as a single elegant felt rather than scattered tiles.
 const ZONES = [
-  // Row 1 — High tiers, just in front of the arena (z = +0.55)
-  { tier:'super_champion', x:-2.50, z: 0.55, w:1.55, h:0.78, color:0xff8c42 },
-  { tier:'supreme',        x: 0.00, z: 0.55, w:1.75, h:0.95, color:0xff4d6d, supreme:true },
-  { tier:'champion',       x: 2.50, z: 0.55, w:1.55, h:0.78, color:0xf5c14a },
-  // Row 2 — Mid tiers (z = +1.55)
-  { tier:'second_place',   x:-3.00, z: 1.55, w:1.20, h:0.85, color:0x6ce5ff },
-  { tier:'third_place',    x:-1.10, z: 1.55, w:1.20, h:0.85, color:0xff5a5a },
-  { tier:'doctor',         x: 1.10, z: 1.55, w:1.20, h:0.85, color:0xb88ff5 },
-  { tier:'graduate',       x: 3.00, z: 1.55, w:1.20, h:0.85, color:0xd4a23a },
-  // Row 3 — Basic tiers (z = +2.55)
-  { tier:'showman',        x:-1.30, z: 2.55, w:1.55, h:0.85, color:0xB8860B },
-  { tier:'miss',           x: 1.30, z: 2.55, w:1.55, h:0.85, color:0x808080 },
-  // Row 4 — Side bets, closest to player (z = +3.45)
-  { tier:'red',         x:-3.05, z: 3.45, w:1.20, h:0.60, color:0xff5050, side:true },
-  { tier:'tie',         x:-1.02, z: 3.45, w:1.20, h:0.60, color:0x6ce28a, side:true },
-  { tier:'black',       x: 1.02, z: 3.45, w:1.20, h:0.60, color:0x444444, side:true },
-  { tier:'jackpot_bet', x: 3.05, z: 3.45, w:1.20, h:0.60, color:0xffb86b, side:true },
+  // Row 1 — High tiers (z = +0.75). Supreme is taller + spans the middle for prominence.
+  { tier:'super_champion', x:-2.40, z: 0.75, w:1.50, h:0.85, color:0xff8c42 },
+  { tier:'supreme',        x: 0.00, z: 0.75, w:3.10, h:1.00, color:0xff4d6d, supreme:true },
+  { tier:'champion',       x: 2.40, z: 0.75, w:1.50, h:0.85, color:0xf5c14a },
+  // Row 2 — Mid tiers (z = +1.80). One zone per column.
+  { tier:'second_place',   x:-2.40, z: 1.80, w:1.50, h:0.82, color:0x6ce5ff },
+  { tier:'third_place',    x:-0.80, z: 1.80, w:1.50, h:0.82, color:0xff5a5a },
+  { tier:'doctor',         x: 0.80, z: 1.80, w:1.50, h:0.82, color:0xb88ff5 },
+  { tier:'graduate',       x: 2.40, z: 1.80, w:1.50, h:0.82, color:0xd4a23a },
+  // Row 3 — Basic tiers (z = +2.75). Wide left/right halves, like roulette 1-18 / 19-36.
+  { tier:'showman',        x:-1.60, z: 2.75, w:3.10, h:0.82, color:0xB8860B },
+  { tier:'miss',           x: 1.60, z: 2.75, w:3.10, h:0.82, color:0x808080 },
+  // Row 4 — Side bets (z = +3.55), closest to player. One zone per column.
+  { tier:'red',         x:-2.40, z: 3.55, w:1.50, h:0.55, color:0xff5050, side:true },
+  { tier:'tie',         x:-0.80, z: 3.55, w:1.50, h:0.55, color:0x6ce28a, side:true },
+  { tier:'black',       x: 0.80, z: 3.55, w:1.50, h:0.55, color:0x444444, side:true },
+  { tier:'jackpot_bet', x: 2.40, z: 3.55, w:1.50, h:0.55, color:0xffb86b, side:true },
 ];
 
 // ============================================================ STATE
@@ -535,13 +535,16 @@ function makeLantern(color = 0xc41020) {
   ctx.beginPath(); ctx.arc(512, 512, 460, 0, Math.PI*2); ctx.stroke();
   ctx.setLineDash([]);
 
-  // Auspicious cloud patterns around the rim
+  // Auspicious cloud patterns around the rim — restricted to the dealer half of
+  // the table (canvas_y < 542 → world z < +0.25) so they don't clutter the
+  // unified betting grid below.
   ctx.globalAlpha = 0.22;
   ctx.strokeStyle = '#f3d27a';
   ctx.lineWidth = 1.5;
   for (let a = 0; a < Math.PI*2; a += Math.PI/8) {
     const cx = 512 + Math.cos(a)*430;
     const cy = 512 + Math.sin(a)*430;
+    if (cy > 542) continue;            // skip clouds in the player half
     ctx.beginPath();
     ctx.arc(cx, cy, 22, 0, Math.PI*2);
     ctx.arc(cx-18, cy-8, 14, 0, Math.PI*2);
@@ -550,17 +553,43 @@ function makeLantern(color = 0xc41020) {
   }
   ctx.globalAlpha = 1;
 
-  // Decorative dashed gold "lane" dividing dealer half from player half of the table
-  // (replaces the old centred bowl marker — the arena is no longer at the table centre).
-  ctx.strokeStyle = 'rgba(243, 210, 122, 0.45)';
-  ctx.lineWidth = 3;
-  ctx.setLineDash([14, 18]);
-  // Mid-table dividing line (canvas y = 512 corresponds to world z = 0 with the new mapping)
+  // Roulette-style unified betting grid: gold divider lines that frame and
+  // separate the four bet rows + four columns. World (x,z) → canvas pixels:
+  //   canvas_x = (x + 5.0) * 102.4,   canvas_y = (z + 5.0) * 102.4
+  // (felt covers x,z in [-5.0, +5.0] over a 1024×1024 canvas.)
+  const W2C = (x) => (x + 5.0) * 102.4;
+  ctx.save();
+  ctx.strokeStyle = 'rgba(243, 210, 122, 0.55)';
+  ctx.shadowColor = 'rgba(255, 200, 80, 0.4)';
+
+  // Outer frame around the entire bet area
+  const frameLeft   = W2C(-3.20), frameRight  = W2C( 3.20);
+  const frameTop    = W2C( 0.25), frameBottom = W2C( 3.85);
+  ctx.lineWidth = 4;
+  ctx.shadowBlur = 8;
   ctx.beginPath();
-  ctx.moveTo(60, 512);
-  ctx.lineTo(1024 - 60, 512);
+  ctx.rect(frameLeft, frameTop, frameRight - frameLeft, frameBottom - frameTop);
   ctx.stroke();
-  ctx.setLineDash([]);
+  ctx.shadowBlur = 0;
+
+  // Horizontal row dividers (between rows 1↔2, 2↔3, 3↔4)
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(243, 210, 122, 0.45)';
+  [1.32, 2.275, 3.22].forEach(zMid => {
+    ctx.beginPath();
+    ctx.moveTo(frameLeft, W2C(zMid));
+    ctx.lineTo(frameRight, W2C(zMid));
+    ctx.stroke();
+  });
+
+  // Vertical column dividers (4-column grid: cuts at x = ±1.60 and 0)
+  [-1.60, 0.0, 1.60].forEach(xMid => {
+    ctx.beginPath();
+    ctx.moveTo(W2C(xMid), frameTop);
+    ctx.lineTo(W2C(xMid), frameBottom);
+    ctx.stroke();
+  });
+  ctx.restore();
 
   const feltTex = new THREE.CanvasTexture(c);
   feltTex.anisotropy = 16;
@@ -1048,41 +1077,28 @@ const zoneMeshes = [];   // for raycaster
 const zoneByTier = {};   // tier -> { group, topMat, chipStack: [] }
 
 function makeZoneTexture(tier, zone) {
-  const w = 1024, h = 576;
+  // Use a wider aspect for "wide" zones (supreme / showman / miss) so their
+  // text doesn't get stretched on the bigger plane.
+  const wide = zone.w >= 2.5;
+  const w = wide ? 1536 : 1024;
+  const h = wide ? 512 : 576;
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
   const ctx = c.getContext('2d');
 
-  // Subtle gradient background (darker at edges)
-  const bg = ctx.createRadialGradient(w/2, h/2, 40, w/2, h/2, w*0.7);
-  bg.addColorStop(0,   'rgba(60, 8, 14, 0.78)');
-  bg.addColorStop(0.7, 'rgba(30, 4, 8, 0.86)');
-  bg.addColorStop(1,   'rgba(14, 2, 4, 0.92)');
-  ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
+  // Minimal background — flat dark wash that lets the felt show through.
+  ctx.fillStyle = 'rgba(18, 4, 8, 0.55)';
+  ctx.fillRect(0, 0, w, h);
 
-  // Bright glow border (accent color)
+  // Single elegant border — accent colour with soft outer glow, no inner dashed
+  // border, no corner ornaments. Cleaner read at a glance.
   const accentHex = '#' + zone.color.toString(16).padStart(6,'0');
   ctx.strokeStyle = accentHex;
-  ctx.lineWidth = 12;
+  ctx.lineWidth = wide ? 8 : 9;
   ctx.shadowColor = accentHex;
-  ctx.shadowBlur = 20;
-  ctx.strokeRect(14, 14, w-28, h-28);
+  ctx.shadowBlur = wide ? 22 : 26;
+  ctx.strokeRect(12, 12, w - 24, h - 24);
   ctx.shadowBlur = 0;
-
-  // Inner dashed border (gold)
-  ctx.strokeStyle = 'rgba(243, 210, 122, 0.55)';
-  ctx.lineWidth = 2.5;
-  ctx.setLineDash([10, 14]);
-  ctx.strokeRect(34, 34, w-68, h-68);
-  ctx.setLineDash([]);
-
-  // Decorative corners (small ornaments)
-  ctx.fillStyle = 'rgba(243, 210, 122, 0.4)';
-  [[40,40],[w-40,40],[40,h-40],[w-40,h-40]].forEach(([cx,cy]) => {
-    ctx.beginPath();
-    ctx.arc(cx, cy, 7, 0, Math.PI*2);
-    ctx.fill();
-  });
 
   const def = TIERS[tier] || SIDE_TIERS[tier];
   const isSide = zone.side;
@@ -1091,32 +1107,46 @@ function makeZoneTexture(tier, zone) {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
-  // Chinese title — large glowing gold gradient
-  const cnFont = isSide ? 130 : 175;
-  const cnY = isSide ? 200 : 220;
-  const cnGrad = ctx.createLinearGradient(0, cnY-90, 0, cnY+90);
-  cnGrad.addColorStop(0,   '#fff7c8');
-  cnGrad.addColorStop(0.45,'#ffd34f');
-  cnGrad.addColorStop(1,   '#a07020');
+  // === Chinese title — large gold gradient with soft glow ===
+  const cnFont   = isSide ? 130 : (wide ? 160 : 185);
+  const cnY      = isSide ? 0.36 * h : (wide ? 0.40 * h : 0.40 * h);
+  const cnGrad = ctx.createLinearGradient(0, cnY - cnFont*0.5, 0, cnY + cnFont*0.5);
+  cnGrad.addColorStop(0,    '#fff7c8');
+  cnGrad.addColorStop(0.45, '#ffd34f');
+  cnGrad.addColorStop(1,    '#a07020');
   ctx.fillStyle = cnGrad;
   ctx.shadowColor = 'rgba(255, 170, 60, 0.85)';
-  ctx.shadowBlur = 28;
+  ctx.shadowBlur = 26;
   ctx.font = `900 ${cnFont}px "Ma Shan Zheng", "Noto Serif SC", serif`;
   ctx.fillText(def.cn, w/2, cnY);
   ctx.shadowBlur = 0;
 
-  // English subtitle
+  // === English subtitle — letter-spaced for elegance ===
   ctx.fillStyle = '#f3d27a';
-  ctx.font = `900 ${isSide ? 36 : 42}px Cinzel, serif`;
-  ctx.fillText(def.en, w/2, isSide ? 330 : 360);
+  const enFont = isSide ? 34 : (wide ? 36 : 40);
+  ctx.font = `900 ${enFont}px Cinzel, serif`;
+  // Letter-spacing trick: insert thin spaces between characters for that engraved feel
+  const enText = def.en.split('').join(' ');
+  ctx.fillText(enText, w/2, isSide ? 0.62*h : (wide ? 0.62*h : 0.62*h));
 
-  // Payout — big and glowing
+  // Thin gold divider line between subtitle and payout for an "engraved label" look
+  ctx.strokeStyle = 'rgba(243, 210, 122, 0.45)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  const dividerY = isSide ? 0.72*h : 0.72*h;
+  const dividerWidth = wide ? 0.22*w : 0.18*w;
+  ctx.moveTo(w/2 - dividerWidth, dividerY);
+  ctx.lineTo(w/2 + dividerWidth, dividerY);
+  ctx.stroke();
+
+  // === Payout — big and glowing ===
   ctx.fillStyle = '#ffe681';
-  ctx.font = `900 ${isSide ? 52 : 68}px Cinzel, serif`;
+  const payFont = isSide ? 48 : (wide ? 56 : 64);
+  ctx.font = `900 ${payFont}px Cinzel, serif`;
   ctx.shadowColor = 'rgba(255, 220, 100, 0.9)';
-  ctx.shadowBlur = 16;
+  ctx.shadowBlur = 14;
   const payText = def.pay === 'JP' ? 'JACKPOT' : `${def.pay} : 1`;
-  ctx.fillText(payText, w/2, isSide ? 440 : 480);
+  ctx.fillText(payText, w/2, isSide ? 0.86*h : 0.87*h);
 
   ctx.restore();
 
