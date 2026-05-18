@@ -194,11 +194,11 @@ const VIEWS = {
     fov: 58,
     speed: 2.4,
   },
-  // Lever-pull / dice tumbling — camera dives in over the bowl
+  // Lever-pull / dice tumbling — camera pulls back to take in the dramatic free-fall onto the felt
   rolling: {
-    pos:  new THREE.Vector3(0,   2.6,  3.2),
+    pos:  new THREE.Vector3(0,   3.4,  4.4),
     look: new THREE.Vector3(0,   0.55, 0.0),
-    fov: 48,
+    fov: 56,
     speed: 1.8,
   },
   // Result reveal — pulled back and slightly higher, dramatic wide angle to take in the table
@@ -489,62 +489,47 @@ function makeLantern(color = 0xc41020) {
   scene.add(tableGroup);
 }
 
-// ============================================================ BOWL / DOME
-const domeGroup = new THREE.Group();
-domeGroup.position.set(0, 0, 0);
+// ============================================================ DICE ARENA (no dome — open table)
+// A flat gold ring on the felt marks where the dice land. Replaces the old glass dome.
+const ARENA_RADIUS = 1.55;
+const arenaGroup = new THREE.Group();
+arenaGroup.position.set(0, 0, 0);
 {
-  // Bowl base — visible darker disc
-  const bowlBase = new THREE.Mesh(
-    new THREE.CircleGeometry(1.25, 40),
-    new THREE.MeshStandardMaterial({ color: 0x2a0408, roughness: 0.75, metalness: 0.1 })
+  // Slightly darkened felt circle inside the play area for visual contrast
+  const arenaPad = new THREE.Mesh(
+    new THREE.CircleGeometry(ARENA_RADIUS, 56),
+    new THREE.MeshStandardMaterial({
+      color: 0x2a0608,
+      roughness: 0.92,
+      metalness: 0.0,
+      transparent: true,
+      opacity: 0.55,
+    })
   );
-  bowlBase.rotation.x = -Math.PI/2;
-  bowlBase.position.y = 0.025;
-  bowlBase.receiveShadow = true;
-  domeGroup.add(bowlBase);
+  arenaPad.rotation.x = -Math.PI/2;
+  arenaPad.position.y = 0.012;
+  arenaPad.receiveShadow = true;
+  arenaGroup.add(arenaPad);
 
-  // Inner bowl rim
-  const rim1 = new THREE.Mesh(
-    new THREE.TorusGeometry(1.28, 0.045, 14, 56),
-    new THREE.MeshStandardMaterial({ color: 0xd4a23a, roughness: 0.35, metalness: 0.95 })
-  );
-  rim1.rotation.x = Math.PI/2; rim1.position.y = 0.04;
-  domeGroup.add(rim1);
-
-  // Glass dome — using MeshStandardMaterial for max compat
-  const glassMat = new THREE.MeshStandardMaterial({
-    color: 0xffeacb,
-    roughness: 0.08,
-    metalness: 0.25,
-    transparent: true,
-    opacity: 0.22,
-    side: THREE.DoubleSide,
-    depthWrite: false,
-  });
-  const dome = new THREE.Mesh(
-    new THREE.SphereGeometry(1.35, 40, 30, 0, Math.PI*2, 0, Math.PI/2),
-    glassMat
-  );
-  dome.position.y = 0.05;
-  domeGroup.add(dome);
-
-  // Top brass apex
-  const apex = new THREE.Mesh(
-    new THREE.SphereGeometry(0.14, 18, 14),
-    new THREE.MeshStandardMaterial({ color: 0xd4a23a, roughness: 0.3, metalness: 0.95 })
-  );
-  apex.position.y = 1.38;
-  domeGroup.add(apex);
-
-  // Bottom rim (where dome meets table)
-  const rim2 = new THREE.Mesh(
-    new THREE.TorusGeometry(1.35, 0.055, 14, 56),
+  // Decorative gold ring marking the arena edge (flat, sits on the felt)
+  const ringOuter = new THREE.Mesh(
+    new THREE.TorusGeometry(ARENA_RADIUS, 0.035, 14, 64),
     new THREE.MeshStandardMaterial({ color: 0xd4a23a, roughness: 0.32, metalness: 0.95 })
   );
-  rim2.rotation.x = Math.PI/2; rim2.position.y = 0.06;
-  domeGroup.add(rim2);
+  ringOuter.rotation.x = Math.PI/2;
+  ringOuter.position.y = 0.022;
+  arenaGroup.add(ringOuter);
+
+  // Inner thin gold ring for layered detail
+  const ringInner = new THREE.Mesh(
+    new THREE.TorusGeometry(ARENA_RADIUS - 0.12, 0.015, 10, 56),
+    new THREE.MeshStandardMaterial({ color: 0xf3d27a, roughness: 0.35, metalness: 0.9 })
+  );
+  ringInner.rotation.x = Math.PI/2;
+  ringInner.position.y = 0.018;
+  arenaGroup.add(ringInner);
 }
-scene.add(domeGroup);
+scene.add(arenaGroup);
 
 // ============================================================ DICE
 const FACE_ROTATIONS = {
@@ -714,28 +699,29 @@ world.addContactMaterial(new CANNON.ContactMaterial(_diceMat, _diceMat, {
   friction: 0.20, restitution: 0.30,
 }));
 
-// Bowl floor — horizontal plane at y = 0.05 (matches visual bowl base)
+// Felt floor — horizontal plane at the table surface (y ≈ 0.01)
 {
   const b = new CANNON.Body({ mass: 0, shape: new CANNON.Plane(), material: _floorMat });
   b.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI/2);
-  b.position.set(0, 0.05, 0);
+  b.position.set(0, 0.01, 0);
   world.addBody(b);
 }
-// Ceiling at y = 1.30 (just inside the dome glass) so dice never escape
+// Soft safety ceiling — far above so dice can fall from up high but never escape upward
 {
   const b = new CANNON.Body({ mass: 0, shape: new CANNON.Plane(), material: _floorMat });
   b.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), Math.PI/2);
-  b.position.set(0, 1.30, 0);
+  b.position.set(0, 5.0, 0);
   world.addBody(b);
 }
-// Bowl walls — ring of 14 inward-facing vertical planes (polygonal hollow cylinder)
-const BOWL_WALL_RADIUS = 1.08;
-const BOWL_WALL_SEGMENTS = 14;
+// Invisible containment walls keep the dice in the central play area (no dome — just an open ring).
+// Slightly larger radius than the visible gold ring so dice can roll right up against the edge.
+const BOWL_WALL_RADIUS = ARENA_RADIUS + 0.05;
+const BOWL_WALL_SEGMENTS = 16;
 for (let i = 0; i < BOWL_WALL_SEGMENTS; i++) {
   const a = (i / BOWL_WALL_SEGMENTS) * Math.PI * 2;
   const b = new CANNON.Body({ mass: 0, shape: new CANNON.Plane(), material: _floorMat });
-  b.position.set(Math.cos(a) * BOWL_WALL_RADIUS, 0.5, Math.sin(a) * BOWL_WALL_RADIUS);
-  // Rotate +Z (default plane normal) to point toward origin from this wall location
+  b.position.set(Math.cos(a) * BOWL_WALL_RADIUS, 1.0, Math.sin(a) * BOWL_WALL_RADIUS);
+  // Rotate +Z (default plane normal) to point toward origin
   b.quaternion.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), -a - Math.PI/2);
   world.addBody(b);
 }
@@ -776,31 +762,31 @@ function parkDice() {
   }
 }
 
-// Drop a single die into the bowl with strong downward velocity + random spin.
-// The die appears at a random pre-set spot near the top of the dome, then falls.
+// Drop a single die onto the felt with light initial velocity + heavy spin.
+// The die appears high above the table and free-falls dramatically.
 function releaseDie(i) {
   const body = diceBodies[i];
-  // Pre-set spawn point: spread around the bowl centre with random offset
+  // Spawn point: spread around the arena centre with random offset, well above the table
   const ang = (i / diceBodies.length) * Math.PI * 2 + (Math.random() - 0.5) * 0.6;
-  const rad = 0.18 + Math.random() * 0.22;
+  const rad = 0.15 + Math.random() * 0.30;
   body.position.set(
     Math.cos(ang) * rad,
-    1.15 + Math.random() * 0.08,
+    2.6 + Math.random() * 0.4,                          // high above the felt — dramatic fall
     Math.sin(ang) * rad
   );
   const q = new CANNON.Quaternion();
   q.setFromEuler(Math.random()*Math.PI*2, Math.random()*Math.PI*2, Math.random()*Math.PI*2, 'XYZ');
   body.quaternion.copy(q);
-  // Mostly-vertical drop with slight horizontal jitter and heavy spin
+  // Gentle initial push + heavy spin; gravity does the dramatic work
   body.velocity.set(
     (Math.random() - 0.5) * 1.4,
-    -3.0 - Math.random() * 1.6,
+    -1.0 - Math.random() * 1.4,
     (Math.random() - 0.5) * 1.4
   );
   body.angularVelocity.set(
-    (Math.random() - 0.5) * 28,
-    (Math.random() - 0.5) * 28,
-    (Math.random() - 0.5) * 28
+    (Math.random() - 0.5) * 30,
+    (Math.random() - 0.5) * 30,
+    (Math.random() - 0.5) * 30
   );
   body.wakeUp();
   // Sync mesh transform so it appears in the right place the moment it's revealed
@@ -1815,14 +1801,7 @@ function animate() {
     state._eyeLight.intensity = state.phase === "rolling" ? 1.2 : 0.6;
   }
 
-  // Dome subtle shake during rolling
-  if (state.phase === "rolling") {
-    domeGroup.position.x = (Math.random() - 0.5) * 0.015;
-    domeGroup.position.z = (Math.random() - 0.5) * 0.015;
-  } else {
-    domeGroup.position.x *= 0.92;
-    domeGroup.position.z *= 0.92;
-  }
+  // (No dome — open table. The arena ring sits flat on the felt; no shake needed.)
 
   // === PHYSICS STEP ===
   // Step the world and sync visual dice transforms to their rigid bodies.
