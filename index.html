@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Casino Bo Bing — 博饼消消乐</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Ma+Shan+Zheng&family=Noto+Serif+SC:wght@600;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+
+<!-- Three.js global UMD build — exposes window.THREE -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.146.0/build/three.min.js"></script>
+<script>
+  // Visible error handler so issues don't leave you stuck on the loading screen
+  function showErrorBanner(msg) {
+    const errDiv = document.createElement('div');
+    errDiv.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#a00018;color:#fff;padding:14px 20px;z-index:999999;font:12px monospace;white-space:pre-wrap;max-height:220px;overflow:auto;border-bottom:3px solid #f3d27a;box-shadow:0 4px 18px rgba(0,0,0,.6);';
+    errDiv.textContent = msg;
+    document.body.appendChild(errDiv);
+    const l = document.getElementById('loading');
+    if (l) l.classList.add('hidden');
+  }
+  window.addEventListener('error', function (e) {
+    showErrorBanner('JS ERROR: ' + (e.message || '') + '\nat ' + (e.filename || '?') + ':' + (e.lineno || '?') + ':' + (e.colno || '?'));
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    const r = e.reason || {};
+    showErrorBanner('UNHANDLED PROMISE: ' + (r.message || r.toString && r.toString() || String(r)));
+  });
+  // Safety net: forcibly hide loading after 8 s no matter what
+  setTimeout(function () {
+    const l = document.getElementById('loading');
+    if (l && !l.classList.contains('hidden')) {
+      l.classList.add('hidden');
+      console.warn('[Bo Bing] Loading safety-net fired — Three.js scene may not have initialised correctly. Check the console.');
+    }
+  }, 8000);
+</script>
+</head>
+<body>
+
+<!-- 3D scene canvas mounts here -->
+<canvas id="scene"></canvas>
+
+<!-- =========== HUD OVERLAYS (HTML) =========== -->
+<div class="hud hud-left">
+  <div class="hud-label">余额 · BALANCE</div>
+  <div class="hud-value" id="balanceAmount">HK$ 10,000</div>
+</div>
+
+<div class="hud hud-center">
+  <div class="hud-label">至尊状元 · PROGRESSIVE JACKPOT</div>
+  <div class="hud-value jackpot-val" id="jackpotAmount">HK$ 500,000</div>
+</div>
+
+<div class="hud hud-right">
+  <div class="hud-label">本局赢 · LAST WIN</div>
+  <div class="hud-value" id="lastWin">HK$ 0</div>
+</div>
+
+<div class="hud hud-instruct">
+  <span class="key">DRAG</span> chip to bet · <span class="key">CLICK</span> lever to roll · <span class="key">RIGHT-CLICK</span> zone to remove
+</div>
+
+<!-- Dealer speech scroll -->
+<div class="speech-scroll" id="speech">
+  <div class="speech-inner">
+    <div class="speech-cn" id="speechCn">下注吧，凡人</div>
+    <div class="speech-en" id="speechEn">PLACE YOUR BETS, MORTAL</div>
+  </div>
+</div>
+
+<!-- Result banner -->
+<div class="result-banner" id="banner">
+  <div class="banner-cn" id="bannerCn"></div>
+  <div class="banner-en" id="bannerEn"></div>
+</div>
+
+<!-- Win overlay -->
+<div class="win-overlay" id="winOverlay">
+  <div class="win-card">
+    <div class="win-cn" id="winCn">中奖</div>
+    <div class="win-en" id="winEn">WINNER</div>
+    <div class="win-amount" id="winAmount">+0</div>
+  </div>
+</div>
+
+<!-- Quick action buttons -->
+<div class="action-buttons">
+  <button class="rk-btn" id="btnClear">收回 · CLEAR</button>
+  <button class="rk-btn" id="btnRepeat">跟注 · REPEAT</button>
+</div>
+
+<!-- Drag-chip preview that follows cursor during drag -->
+<div class="drag-chip" id="dragChip"></div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- Loading overlay -->
+<div class="loading-overlay" id="loading">
+  <div class="loading-card">
+    <div class="loading-cn">载入中…</div>
+    <div class="loading-en">PREPARING TABLE</div>
+    <div class="loading-bar"><div class="loading-fill" id="loadFill"></div></div>
+  </div>
+</div>
+
+<script src="game.js"></script>
+</body>
+</html>
