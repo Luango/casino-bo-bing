@@ -511,16 +511,16 @@ const TABLE_PLAYER_LEN   = 5.0;    // distance from the meeting line (z=0) to th
   tableShape.lineTo( TABLE_HALF_W, 0);                                  // up right side, closes the shape
 
   // === Wooden base ===
+  // Bevel DISABLED — the bevel was extending the geometry above the shape plane
+  // by bevelThickness (0.05), which made the base top sit at y=+0.05 and visually
+  // cover the felt at y=0.006 and the bet zones at y=0.012. Without bevel, the
+  // top is flush at y=0 and the felts/zones above are visible.
   const baseMat = new THREE.MeshStandardMaterial({
     color: 0x180306, roughness: 0.85, metalness: 0.05
   });
   const baseGeo = new THREE.ExtrudeGeometry(tableShape, {
     depth: 0.55,
-    bevelEnabled: true,
-    bevelThickness: 0.05,
-    bevelSize: 0.10,
-    bevelOffset: 0,
-    bevelSegments: 3,
+    bevelEnabled: false,
   });
   const base = new THREE.Mesh(baseGeo, baseMat);
   base.rotation.x = -Math.PI/2;
@@ -1238,23 +1238,29 @@ function makeZoneTexture(tier, zone) {
 
 ZONES.forEach(z => {
   const group = new THREE.Group();
-  group.position.set(z.x, 0.012, z.z);
+  // Felt at y=0.007, base top at y=0. Zones float just above felt as raised plaques.
+  group.position.set(z.x, 0.045, z.z);
 
   const tex = makeZoneTexture(z.tier, z);
   const topMat = new THREE.MeshStandardMaterial({
     map: tex,
-    roughness: 0.65,
-    metalness: 0.05,
-    transparent: true,
+    roughness: 0.55,
+    metalness: 0.10,
+    // Subtle base emissive so the zone is readable even if dimly lit by the spotlight
     emissive: new THREE.Color(z.color),
-    emissiveMap: tex,
-    emissiveIntensity: 0.0,
+    emissiveIntensity: 0.18,
   });
-  const sideMat = new THREE.MeshStandardMaterial({ color: 0x2a0408, roughness: 0.9 });
+  // Side material visible from a low camera angle — matches the accent colour subtly
+  const sideMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(z.color).multiplyScalar(0.35),
+    roughness: 0.7,
+    metalness: 0.05,
+  });
 
   // Materials array for BoxGeometry: +X, -X, +Y, -Y, +Z, -Z
   const mats = [sideMat, sideMat, topMat, sideMat, sideMat, sideMat];
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(z.w, 0.02, z.h), mats);
+  // Slightly thicker box (0.05 height instead of 0.02) so the zones read as raised plaques
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(z.w, 0.05, z.h), mats);
   mesh.userData.tier = z.tier;
   mesh.userData.group = group;
   mesh.userData.isZone = true;
@@ -1269,7 +1275,7 @@ ZONES.forEach(z => {
   });
   const glow = new THREE.Mesh(glowGeo, glowMat);
   glow.rotation.x = -Math.PI/2;
-  glow.position.y = 0.022;     // just above the zone top face so it reads as inset glow
+  glow.position.y = 0.035;     // just above the zone top face (zone box is 0.05 tall, so top at +0.025)
   group.add(glow);
 
   group.userData.topMat = topMat;
