@@ -635,18 +635,142 @@ const DICE_RESTING_POSITIONS = [
 for (let i = 0; i < 6; i++) {
   const d = makeDie();
   d.position.set(...DICE_RESTING_POSITIONS[i]);
-  // initial orientation
   const startVal = ((i * 7 + 3) % 6) + 1;
   d.setRotationFromEuler(FACE_ROTATIONS[startVal]);
-  d.rotation.y = Math.random() * Math.PI * 2;
   d.userData.value = startVal;
-  d.userData.targetPos = new THREE.Vector3(...DICE_RESTING_POSITIONS[i]);
-  d.userData.targetQuat = new THREE.Quaternion().setFromEuler(FACE_ROTATIONS[startVal]);
   d.userData.winning = false;
-  d.userData.basePos = new THREE.Vector3(...DICE_RESTING_POSITIONS[i]);
   scene.add(d);
   dice.push(d);
 }
+
+// ============================================================ PHYSICS WORLD (cannon.js)
+const world = new CANNON.World();
+world.gravity.set(0, -22, 0);                     // stronger-than-earth for snappy dice
+world.broadphase = new CANNON.NaiveBroadphase();
+world.solver.iterations = 16;
+world.allowSleep = true;
+world.defaultContactMaterial.contactEquationStiffness = 1e7;
+world.defaultContactMaterial.contactEquationRelaxation = 3;
+
+// Materials
+const _diceMat  = new CANNON.Material('dice');
+const _floorMat = new CANNON.Material('floor');
+world.addContactMaterial(new CANNON.ContactMaterial(_diceMat, _floorMat, {
+  friction: 0.35, restitution: 0.38,
+}));
+world.addContactMaterial(new CANNON.ContactMaterial(_diceMat, _diceMat, {
+  friction: 0.20, restitution: 0.30,
+}));
+
+// Bowl floor — horizontal plane at y = 0.05 (matches visual bowl base)
+{
+  const b = new CANNON.Body({ mass: 0, shape: new CANNON.Plane(), material: _floorMat });
+  b.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI/2);
+  b.position.set(0, 0.05, 0);
+  world.addBody(b);
+}
+// Ceiling at y = 1.30 (just inside the dome glass) so dice never escape
+{
+  const b = new CANNON.Body({ mass: 0, shape: new CANNON.Plane(), material: _floorMat });
+  b.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), Math.PI/2);
+  b.position.set(0, 1.30, 0);
+  world.addBody(b);
+}
+// Bowl walls — ring of 14 inward-facing vertical planes (polygonal hollow cylinder)
+const BOWL_WALL_RADIUS = 1.08;
+const BOWL_WALL_SEGMENTS = 14;
+for (let i = 0; i < BOWL_WALL_SEGMENTS; i++) {
+  const a = (i / BOWL_WALL_SEGMENTS) * Math.PI * 2;
+  const b = new CANNON.Body({ mass: 0, shape: new CANNON.Plane(), material: _floorMat });
+  b.position.set(Math.cos(a) * BOWL_WALL_RADIUS, 0.5, Math.sin(a) * BOWL_WALL_RADIUS);
+  // Rotate +Z (default plane normal) to point toward origin from this wall location
+  b.quaternion.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), -a - Math.PI/2);
+  world.addBody(b);
+}
+
+// Dice rigid bodies — one Box per visual die
+const DIE_PHYS_HALF = 0.25; // half of the visual 0.50 cube
+const diceBodies = [];
+dice.forEach((mesh, i) => {
+  const body = new CANNON.Body({
+    mass: 0.30,
+    shape: new CANNON.Box(new CANNON.Vec3(DIE_PHYS_HALF, DIE_PHYS_HALF, DIE_PHYS_HALF)),
+    material: _diceMat,
+    linearDamping: 0.10,
+    angularDamping: 0.10,
+    allowSleep: true,
+    sleepSpeedLimit: 0.06,
+    sleepTimeLimit: 0.35,
+  });
+  body.position.set(mesh.position.x, mesh.position.y, mesh.position.z);
+  body.quaternion.set(mesh.quaternion.x, mesh.quaternion.y, mesh.quaternion.z, mesh.quaternion.w);
+  diceBodies.push(body);
+  world.addBody(body);
+});
+
+// === Helpers ====================================================
+// Throw the dice into the bowl with random impulse + spin (called when lever is pulled)
+function throwDice() {
+  for (let i = 0; i < diceBodies.length; i++) {
+    const body = diceBodies[i];
+    body.wakeUp();
+    // Random start position high inside the bowl, spread around the centre
+    const ang = (i / diceBodies.length) * Math.PI * 2 + (Math.random() - 0.5) * 0.6;
+    const rad = 0.20 + Math.random() * 0.30;
+    body.position.set(
+      Math.cos(ang) * rad,
+      0.95 + Math.random() * 0.20,
+      Math.sin(ang) * rad
+    );
+    // Random orientation
+    const q = new CANNON.Quaternion();
+    q.setFromEuler(Math.random()*Math.PI*2, Math.random()*Math.PI*2, Math.random()*Math.PI*2, 'XYZ');
+    body.quaternion.copy(q);
+    // Strong downward + sideways throw, with heavy spin
+    body.velocity.set(
+      (Math.random() - 0.5) * 4.5,
+      -4 - Math.random() * 2.5,
+      (Math.random() - 0.5) * 4.5
+    );
+    body.angularVelocity.set(
+      (Math.random() - 0.5) * 32,
+      (Math.random() - 0.5) * 32,
+      (Math.random() - 0.5) * 32
+    );
+  }
+}
+
+// After the dice settle, read which face value is up by finding which local axis
+// is closest to world +Y. Three.js box face order: +X, -X, +Y, -Y, +Z, -Z mapped to 1, 6, 2, 5, 3, 4.
+const _FACE_DIRS = [
+  { local: new CANNON.Vec3( 1, 0, 0), value: 1 },
+  { local: new CANNON.Vec3(-1, 0, 0), value: 6 },
+  { local: new CANNON.Vec3( 0, 1, 0), value: 2 },
+  { local: new CANNON.Vec3( 0,-1, 0), value: 5 },
+  { local: new CANNON.Vec3( 0, 0, 1), value: 3 },
+  { local: new CANNON.Vec3( 0, 0,-1), value: 4 },
+];
+function readDieValue(body) {
+  const worldVec = new CANNON.Vec3();
+  let bestY = -Infinity, bestValue = 1;
+  for (const f of _FACE_DIRS) {
+    body.quaternion.vmult(f.local, worldVec);
+    if (worldVec.y > bestY) { bestY = worldVec.y; bestValue = f.value; }
+  }
+  return bestValue;
+}
+
+// Pre-simulate so dice settle into a natural starting pose before the player sees the scene
+function presettleDice() {
+  throwDice();
+  for (let i = 0; i < 240; i++) world.step(1/60);
+  for (let i = 0; i < dice.length; i++) {
+    dice[i].position.copy(diceBodies[i].position);
+    dice[i].quaternion.copy(diceBodies[i].quaternion);
+    dice[i].userData.value = readDieValue(diceBodies[i]);
+  }
+}
+presettleDice();
 
 // ============================================================ BET ZONES
 const zoneMeshes = [];   // for raycaster
@@ -1403,38 +1527,33 @@ async function triggerRoll() {
   state.jackpot += Math.floor(Math.random() * 60) + 40;
   updateHud();
 
-  // Pre-roll: set tumble target & start animation
-  const finalDice = Array.from({length: 6}, () => Math.floor(Math.random() * 6) + 1);
-  dice.forEach(d => {
-    d.userData.tumbling = true;
-    d.userData.tumbleVel = new THREE.Vector3(
-      (Math.random()-0.5) * 0.04,
-      (Math.random()-0.5) * 0.06,
-      (Math.random()-0.5) * 0.04
+  // === REAL PHYSICS ROLL ===
+  throwDice();
+
+  // Wait for all dice to come to rest (or hit max-wait timeout)
+  const MAX_WAIT_MS = 7000;
+  const MIN_TUMBLE_MS = 1400;   // make sure they tumble for at least this long even if they settle fast
+  const tStart = performance.now();
+  while (true) {
+    await sleep(120);
+    const elapsedMs = performance.now() - tStart;
+    if (elapsedMs > MAX_WAIT_MS) break;
+    if (elapsedMs < MIN_TUMBLE_MS) continue;
+    const allResting = diceBodies.every(b =>
+      b.sleepState === CANNON.Body.SLEEPING ||
+      (b.velocity.lengthSquared() < 0.002 && b.angularVelocity.lengthSquared() < 0.01)
     );
-    d.userData.tumbleSpin = new THREE.Vector3(
-      (Math.random()-0.5) * 0.6,
-      (Math.random()-0.5) * 0.6,
-      (Math.random()-0.5) * 0.6
-    );
-  });
+    if (allResting) break;
+  }
 
-  await sleep(2200);
+  // Force-sleep any straggler so its quaternion is stable for the readout
+  diceBodies.forEach(b => { b.velocity.setZero(); b.angularVelocity.setZero(); b.sleep && b.sleep(); });
 
-  // Stop tumbling; settle each die to show final face up
-  dice.forEach((d, i) => {
-    d.userData.tumbling = false;
-    d.userData.value = finalDice[i];
-    const targetQ = new THREE.Quaternion().setFromEuler(FACE_ROTATIONS[finalDice[i]]);
-    // add a slight random Y spin
-    const ySpin = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), Math.random()*Math.PI*2);
-    targetQ.multiply(ySpin);
-    d.userData.targetQuat = targetQ;
-    d.userData.targetPos = d.userData.basePos.clone();
-    d.userData.settling = { t: 0, startQ: d.quaternion.clone(), startPos: d.position.clone() };
-  });
+  // Read the actual face values from the settled physics quaternions
+  const finalDice = diceBodies.map(b => readDieValue(b));
+  dice.forEach((d, i) => { d.userData.value = finalDice[i]; });
 
-  await sleep(600);
+  await sleep(450);
   await settle(finalDice);
 }
 
@@ -1587,44 +1706,27 @@ function animate() {
     domeGroup.position.z *= 0.92;
   }
 
-  // Dice tumble
-  dice.forEach(d => {
-    if (d.userData.tumbling) {
-      // Move within bowl (radius ~0.85, height 0.2..0.7)
-      d.position.x += d.userData.tumbleVel.x;
-      d.position.y += d.userData.tumbleVel.y;
-      d.position.z += d.userData.tumbleVel.z;
-      // bounce
-      const r = Math.hypot(d.position.x, d.position.z);
-      if (r > 0.92) {
-        const nx = d.position.x / r, nz = d.position.z / r;
-        d.position.x = nx * 0.92;
-        d.position.z = nz * 0.92;
-        d.userData.tumbleVel.x *= -1;
-        d.userData.tumbleVel.z *= -1;
+  // === PHYSICS STEP ===
+  // Step the world and sync visual dice transforms to their rigid bodies.
+  // Substeps (the 3rd arg) help prevent tunnelling when dice move fast.
+  world.step(1/60, Math.min(dt, 1/30), 4);
+  for (let i = 0; i < dice.length; i++) {
+    dice[i].position.copy(diceBodies[i].position);
+    dice[i].quaternion.copy(diceBodies[i].quaternion);
+  }
+
+  // Winning-die highlight: bright gold emissive pulse (don't move the mesh, physics owns it)
+  for (const d of dice) {
+    const win = d.userData.winning;
+    const intensity = win ? (0.85 + Math.sin(elapsed * 5) * 0.45) : 0.18;
+    const colorHex = win ? 0xff9c3a : 0x1f0d05;
+    if (Array.isArray(d.material)) {
+      for (const m of d.material) {
+        m.emissive.setHex(colorHex);
+        m.emissiveIntensity = intensity;
       }
-      if (d.position.y < 0.28) { d.position.y = 0.28; d.userData.tumbleVel.y = Math.abs(d.userData.tumbleVel.y) * 0.85; }
-      if (d.position.y > 0.92) { d.position.y = 0.92; d.userData.tumbleVel.y = -Math.abs(d.userData.tumbleVel.y) * 0.85; }
-      // gravity-ish
-      d.userData.tumbleVel.y -= 0.004;
-      // tumble rotation
-      d.rotation.x += d.userData.tumbleSpin.x * dt * 8;
-      d.rotation.y += d.userData.tumbleSpin.y * dt * 8;
-      d.rotation.z += d.userData.tumbleSpin.z * dt * 8;
-    } else if (d.userData.settling) {
-      const s = d.userData.settling;
-      s.t = Math.min(1, s.t + dt * 1.8);
-      const e = 1 - Math.pow(1 - s.t, 3); // ease-out cubic
-      d.position.lerpVectors(s.startPos, d.userData.targetPos, e);
-      d.quaternion.slerpQuaternions(s.startQ, d.userData.targetQuat, e);
-      if (s.t >= 1) d.userData.settling = null;
     }
-    // win wobble
-    if (d.userData.winning) {
-      d.position.y = d.userData.targetPos.y + Math.abs(Math.sin(elapsed * 4)) * 0.05;
-      d.rotation.y += dt * 1.2;
-    }
-  });
+  }
 
   // Chip drop animations
   for (const tier in zoneByTier) {
