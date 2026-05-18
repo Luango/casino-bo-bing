@@ -761,34 +761,64 @@ dice.forEach((mesh, i) => {
 });
 
 // === Helpers ====================================================
-// Throw the dice into the bowl with random impulse + spin (called when lever is pulled)
-function throwDice() {
+// Park all dice off-stage (used both for the dramatic sequential drop and the
+// presettle on page load). Bodies are slept far below the bowl so they don't
+// interfere with the simulation while we wait to release them.
+function parkDice() {
+  dice.forEach(d => { d.visible = false; });
   for (let i = 0; i < diceBodies.length; i++) {
     const body = diceBodies[i];
-    body.wakeUp();
-    // Random start position high inside the bowl, spread around the centre
-    const ang = (i / diceBodies.length) * Math.PI * 2 + (Math.random() - 0.5) * 0.6;
-    const rad = 0.20 + Math.random() * 0.30;
-    body.position.set(
-      Math.cos(ang) * rad,
-      0.95 + Math.random() * 0.20,
-      Math.sin(ang) * rad
-    );
-    // Random orientation
-    const q = new CANNON.Quaternion();
-    q.setFromEuler(Math.random()*Math.PI*2, Math.random()*Math.PI*2, Math.random()*Math.PI*2, 'XYZ');
-    body.quaternion.copy(q);
-    // Strong downward + sideways throw, with heavy spin
-    body.velocity.set(
-      (Math.random() - 0.5) * 4.5,
-      -4 - Math.random() * 2.5,
-      (Math.random() - 0.5) * 4.5
-    );
-    body.angularVelocity.set(
-      (Math.random() - 0.5) * 32,
-      (Math.random() - 0.5) * 32,
-      (Math.random() - 0.5) * 32
-    );
+    body.velocity.setZero();
+    body.angularVelocity.setZero();
+    body.position.set((i - 2.5) * 2.5, -20, 0); // way below the table
+    body.quaternion.set(0, 0, 0, 1);
+    body.sleep();
+  }
+}
+
+// Drop a single die into the bowl with strong downward velocity + random spin.
+// The die appears at a random pre-set spot near the top of the dome, then falls.
+function releaseDie(i) {
+  const body = diceBodies[i];
+  // Pre-set spawn point: spread around the bowl centre with random offset
+  const ang = (i / diceBodies.length) * Math.PI * 2 + (Math.random() - 0.5) * 0.6;
+  const rad = 0.18 + Math.random() * 0.22;
+  body.position.set(
+    Math.cos(ang) * rad,
+    1.15 + Math.random() * 0.08,
+    Math.sin(ang) * rad
+  );
+  const q = new CANNON.Quaternion();
+  q.setFromEuler(Math.random()*Math.PI*2, Math.random()*Math.PI*2, Math.random()*Math.PI*2, 'XYZ');
+  body.quaternion.copy(q);
+  // Mostly-vertical drop with slight horizontal jitter and heavy spin
+  body.velocity.set(
+    (Math.random() - 0.5) * 1.4,
+    -3.0 - Math.random() * 1.6,
+    (Math.random() - 0.5) * 1.4
+  );
+  body.angularVelocity.set(
+    (Math.random() - 0.5) * 28,
+    (Math.random() - 0.5) * 28,
+    (Math.random() - 0.5) * 28
+  );
+  body.wakeUp();
+  // Sync mesh transform so it appears in the right place the moment it's revealed
+  dice[i].position.copy(body.position);
+  dice[i].quaternion.copy(body.quaternion);
+  dice[i].visible = true;
+  // Brief pop-in scale animation for extra drama
+  dice[i].scale.set(0.6, 0.6, 0.6);
+  dice[i].userData.popIn = { t: 0, dur: 0.18 };
+}
+
+// Sequentially drop all 6 dice with a delay between each one (dramatic intro).
+async function throwDice() {
+  parkDice();
+  await sleep(220);                                      // brief anticipation pause
+  for (let i = 0; i < diceBodies.length; i++) {
+    releaseDie(i);
+    await sleep(230);                                    // delay between drops
   }
 }
 
@@ -813,8 +843,26 @@ function readDieValue(body) {
 }
 
 // Pre-simulate so dice settle into a natural starting pose before the player sees the scene
+// (no drama needed on init — just drop them all once and let physics relax)
 function presettleDice() {
-  throwDice();
+  dice.forEach(d => { d.visible = true; d.scale.set(1, 1, 1); });
+  for (let i = 0; i < diceBodies.length; i++) {
+    const body = diceBodies[i];
+    const ang = (i / diceBodies.length) * Math.PI * 2;
+    body.position.set(
+      Math.cos(ang) * 0.30,
+      0.70 + Math.random() * 0.20,
+      Math.sin(ang) * 0.30
+    );
+    body.quaternion.setFromEuler(
+      Math.random()*Math.PI*2, Math.random()*Math.PI*2, Math.random()*Math.PI*2, 'XYZ'
+    );
+    body.velocity.set((Math.random()-0.5), -1.0, (Math.random()-0.5));
+    body.angularVelocity.set(
+      (Math.random()-0.5)*8, (Math.random()-0.5)*8, (Math.random()-0.5)*8
+    );
+    body.wakeUp();
+  }
   for (let i = 0; i < 240; i++) world.step(1/60);
   for (let i = 0; i < dice.length; i++) {
     dice[i].position.copy(diceBodies[i].position);
@@ -1581,11 +1629,14 @@ async function triggerRoll() {
   updateHud();
 
   // === REAL PHYSICS ROLL ===
-  throwDice();
+  // Sequential drop: each die is released one at a time with a delay, so the
+  // player watches them clatter into the bowl one after another. Returns once
+  // all 6 have been released into the simulation.
+  await throwDice();
 
-  // Wait for all dice to come to rest (or hit max-wait timeout)
-  const MAX_WAIT_MS = 7000;
-  const MIN_TUMBLE_MS = 1400;   // make sure they tumble for at least this long even if they settle fast
+  // Now wait for the last few dice to come to rest (or hit the max-wait timeout)
+  const MAX_WAIT_MS = 5500;
+  const MIN_TUMBLE_MS = 600;    // sequential drop already gives ~1.6s of action
   const tStart = performance.now();
   while (true) {
     await sleep(120);
@@ -1791,6 +1842,18 @@ function animate() {
       for (const m of d.material) {
         m.emissive.setHex(colorHex);
         m.emissiveIntensity = intensity;
+      }
+    }
+    // Pop-in scale animation when a die is dramatically released
+    if (d.userData.popIn) {
+      d.userData.popIn.t += dt;
+      const tt = Math.min(1, d.userData.popIn.t / d.userData.popIn.dur);
+      const eased = 1 - Math.pow(1 - tt, 2);
+      const s = 0.6 + 0.4 * eased;
+      d.scale.set(s, s, s);
+      if (tt >= 1) {
+        d.scale.set(1, 1, 1);
+        delete d.userData.popIn;
       }
     }
   }
