@@ -528,164 +528,149 @@ const TABLE_PLAYER_LEN   = 5.0;    // distance from the meeting line (z=0) to th
   base.receiveShadow = true;
   tableGroup.add(base);
 
-  // === Felt top — canvas texture mapped onto the D-shape via ShapeGeometry + custom UVs ===
-  const SHAPE_W = TABLE_HALF_W * 2;             // 8.4
-  const SHAPE_H = TABLE_DEALER_R + TABLE_PLAYER_LEN; // 9.2
-  const CW = 1024, CH = 1152;                   // canvas ~matches 8.4 : 9.2 aspect (within 3%)
-  const Sx = CW / SHAPE_W;                      // canvas-pixels-per-world-unit along x
-  const Sy = CH / SHAPE_H;                      // canvas-pixels-per-world-unit along z
-  const W2CX = (x) => (x + TABLE_HALF_W)     * Sx;   // world-x  → canvas-x
-  const W2CZ = (z) => (z + TABLE_DEALER_R)   * Sy;   // world-z  → canvas-y  (dealer at top of canvas)
+  // === Felt is built as TWO meshes — a round CircleGeometry for the dealer end and a flat
+  // PlaneGeometry rectangle for the player betting end. This avoids fragile ShapeGeometry
+  // custom-UV handling and gives the user exactly what they asked for: round dice zone +
+  // square bet zone, with each half visible and clearly textured.
 
-  const c = document.createElement('canvas');
-  c.width = CW; c.height = CH;
-  const ctx = c.getContext('2d');
-
-  // Background: radial gradient centred on the dice arena (world z = -1.4)
-  const gx = W2CX(0), gy = W2CZ(-1.4);
-  const grd = ctx.createRadialGradient(gx, gy, 60, gx, gy, Math.max(CW, CH) * 0.65);
-  grd.addColorStop(0,    '#6a1018');
-  grd.addColorStop(0.5,  '#48080f');
-  grd.addColorStop(0.85, '#2a0408');
-  grd.addColorStop(1,    '#160205');
-  ctx.fillStyle = grd; ctx.fillRect(0, 0, CW, CH);
-
+  // ---- Round dealer-end felt (radius 4.2 circle, positioned at world z = 0 with offset) ----
+  // Drawn at world center (0, 0.005, -1.4) — the dealer half straddles z=-5.6 .. z=+2.8 but the
+  // playable round area visually extends to z ≈ -4.2 (table edge).
+  const roundFeltCanvas = document.createElement('canvas');
+  roundFeltCanvas.width = roundFeltCanvas.height = 1024;
+  const rctx = roundFeltCanvas.getContext('2d');
+  // Radial gradient on the round canvas
+  const rgrd = rctx.createRadialGradient(512, 512, 80, 512, 512, 512);
+  rgrd.addColorStop(0,    '#7a1822');
+  rgrd.addColorStop(0.5,  '#4e0a14');
+  rgrd.addColorStop(0.85, '#2c050a');
+  rgrd.addColorStop(1,    '#180206');
+  rctx.fillStyle = rgrd; rctx.fillRect(0, 0, 1024, 1024);
   // Felt weave
-  ctx.globalAlpha = 0.06;
-  for (let i = 0; i < 260; i++) {
-    ctx.strokeStyle = i % 2 ? '#fff' : '#000';
-    ctx.lineWidth = 0.7;
-    ctx.beginPath();
-    ctx.moveTo(Math.random()*CW, 0);
-    ctx.lineTo(Math.random()*CW + (Math.random()-0.5)*40, CH);
-    ctx.stroke();
+  rctx.globalAlpha = 0.06;
+  for (let i = 0; i < 200; i++) {
+    rctx.strokeStyle = i % 2 ? '#fff' : '#000';
+    rctx.lineWidth = 0.7;
+    rctx.beginPath();
+    rctx.moveTo(Math.random()*1024, 0);
+    rctx.lineTo(Math.random()*1024, 1024);
+    rctx.stroke();
   }
-  ctx.globalAlpha = 1;
-
-  // Auspicious cloud patterns in a ring around the dice arena (dealer half only)
-  ctx.globalAlpha = 0.22;
-  ctx.strokeStyle = '#f3d27a';
-  ctx.lineWidth = 1.5;
+  rctx.globalAlpha = 1;
+  // Auspicious cloud ring around the rim
+  rctx.globalAlpha = 0.28;
+  rctx.strokeStyle = '#f3d27a';
+  rctx.lineWidth = 2;
   for (let a = 0; a < Math.PI*2; a += Math.PI/8) {
-    const wx = Math.cos(a) * 3.55;
-    const wz = Math.sin(a) * 3.55 - 1.4;     // ring around the arena centre (z=-1.4)
-    if (wz > -0.20) continue;                 // skip those that would land in the bet area
-    const cxp = W2CX(wx), cyp = W2CZ(wz);
-    ctx.beginPath();
-    ctx.arc(cxp, cyp, 22, 0, Math.PI*2);
-    ctx.arc(cxp-18, cyp-8, 14, 0, Math.PI*2);
-    ctx.arc(cxp+18, cyp-8, 14, 0, Math.PI*2);
-    ctx.stroke();
+    const cx = 512 + Math.cos(a) * 420;
+    const cy = 512 + Math.sin(a) * 420;
+    rctx.beginPath();
+    rctx.arc(cx, cy, 22, 0, Math.PI*2);
+    rctx.arc(cx - 18, cy - 8, 14, 0, Math.PI*2);
+    rctx.arc(cx + 18, cy - 8, 14, 0, Math.PI*2);
+    rctx.stroke();
   }
-  ctx.globalAlpha = 1;
+  rctx.globalAlpha = 1;
+  // Gold outer rim drawn on the canvas (becomes circle in world)
+  rctx.strokeStyle = '#d4a23a';
+  rctx.lineWidth = 16;
+  rctx.shadowColor = 'rgba(243, 210, 122, 0.5)';
+  rctx.shadowBlur = 12;
+  rctx.beginPath();
+  rctx.arc(512, 512, 504, 0, Math.PI*2);
+  rctx.stroke();
+  rctx.shadowBlur = 0;
 
-  // === Gold border tracing the D-shape outline (replaces the torus trim) ===
-  ctx.save();
-  ctx.strokeStyle = '#d4a23a';
-  ctx.lineWidth = 14;
-  ctx.shadowColor = 'rgba(243, 210, 122, 0.5)';
-  ctx.shadowBlur = 10;
-  ctx.beginPath();
-  // Top-right of rectangle (meeting line, right side)
-  ctx.moveTo(W2CX( TABLE_HALF_W), W2CZ(0));
-  // Down right edge
-  ctx.lineTo(W2CX( TABLE_HALF_W), W2CZ(TABLE_PLAYER_LEN));
-  // Across player edge
-  ctx.lineTo(W2CX(-TABLE_HALF_W), W2CZ(TABLE_PLAYER_LEN));
-  // Up left edge
-  ctx.lineTo(W2CX(-TABLE_HALF_W), W2CZ(0));
-  // Arc around dealer end: ellipse from angle PI to 2*PI through PI*1.5 (top of canvas)
-  ctx.ellipse(W2CX(0), W2CZ(0), TABLE_DEALER_R * Sx, TABLE_DEALER_R * Sy, 0, Math.PI, 2*Math.PI);
-  ctx.stroke();
+  const roundFeltTex = new THREE.CanvasTexture(roundFeltCanvas);
+  roundFeltTex.anisotropy = 16;
+  roundFeltTex.encoding = THREE.sRGBEncoding;
+  const roundFeltMat = new THREE.MeshStandardMaterial({
+    map: roundFeltTex, roughness: 0.92, metalness: 0.0,
+  });
+  const roundFelt = new THREE.Mesh(
+    new THREE.CircleGeometry(TABLE_DEALER_R, 80),
+    roundFeltMat
+  );
+  roundFelt.rotation.x = -Math.PI/2;
+  // Position: dealer-end circle centred at world (0, 0.006, -1.4) — same as the dice arena.
+  // But the circle is radius 4.2, so it extends from z = -5.6 to z = +2.8. We want only the
+  // dealer-end visible (z < 0). The corner of the circle that would extend past z=0 is naturally
+  // covered by the rectangular bet panel.
+  roundFelt.position.set(0, 0.006, -1.4);
+  roundFelt.receiveShadow = true;
+  tableGroup.add(roundFelt);
 
-  // Inner thin dashed gold line just inside the border (decorative double-line trim)
-  ctx.lineWidth = 2;
-  ctx.shadowBlur = 0;
-  ctx.strokeStyle = 'rgba(243, 210, 122, 0.55)';
-  ctx.setLineDash([10, 14]);
-  const inset = 0.24;
-  ctx.beginPath();
-  ctx.moveTo(W2CX( TABLE_HALF_W - inset), W2CZ(0));
-  ctx.lineTo(W2CX( TABLE_HALF_W - inset), W2CZ(TABLE_PLAYER_LEN - inset));
-  ctx.lineTo(W2CX(-TABLE_HALF_W + inset), W2CZ(TABLE_PLAYER_LEN - inset));
-  ctx.lineTo(W2CX(-TABLE_HALF_W + inset), W2CZ(0));
-  ctx.ellipse(W2CX(0), W2CZ(0), (TABLE_DEALER_R - inset) * Sx, (TABLE_DEALER_R - inset) * Sy, 0, Math.PI, 2*Math.PI);
-  ctx.stroke();
-  ctx.setLineDash([]);
-  ctx.restore();
-
-  // === Dashed gold line dividing dealer half (round) from player half (square) ===
-  ctx.save();
-  ctx.strokeStyle = 'rgba(243, 210, 122, 0.55)';
-  ctx.lineWidth = 3;
-  ctx.setLineDash([14, 18]);
-  ctx.beginPath();
-  ctx.moveTo(W2CX(-TABLE_HALF_W + 0.4), W2CZ(0));
-  ctx.lineTo(W2CX( TABLE_HALF_W - 0.4), W2CZ(0));
-  ctx.stroke();
-  ctx.setLineDash([]);
-  ctx.restore();
-
-  // === Roulette-style betting grid (engraved gold lines) ===
-  ctx.save();
-  ctx.strokeStyle = 'rgba(243, 210, 122, 0.55)';
-  ctx.shadowColor = 'rgba(255, 200, 80, 0.4)';
-  // Outer frame around the whole bet area
-  const fLeft = W2CX(-3.20), fRight = W2CX( 3.20);
-  const fTop  = W2CZ( 0.25), fBot   = W2CZ( 3.85);
-  ctx.lineWidth = 4;
-  ctx.shadowBlur = 8;
-  ctx.beginPath();
-  ctx.rect(fLeft, fTop, fRight - fLeft, fBot - fTop);
-  ctx.stroke();
-  ctx.shadowBlur = 0;
-  // Horizontal row dividers
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = 'rgba(243, 210, 122, 0.45)';
+  // ---- Square player-end felt (rectangular betting panel) ----
+  const RECT_W = 7.20;             // wide enough to comfortably hold the 4-column bet grid
+  const RECT_H = 4.20;             // depth from z=+0.30 to z=+4.50
+  const RECT_Z = 2.40;             // centred between the meeting line and the player edge
+  const rectFeltCanvas = document.createElement('canvas');
+  // Match world aspect 7.20 : 4.20 → canvas 1280 × 768 (rounded)
+  rectFeltCanvas.width = 1280; rectFeltCanvas.height = 768;
+  const pctx = rectFeltCanvas.getContext('2d');
+  // Background gradient on the rect canvas (darker, contrasted against gold grid)
+  const pgrd = pctx.createLinearGradient(0, 0, 0, 768);
+  pgrd.addColorStop(0,    '#4e0a14');
+  pgrd.addColorStop(0.6,  '#350612');
+  pgrd.addColorStop(1,    '#1c0408');
+  pctx.fillStyle = pgrd; pctx.fillRect(0, 0, 1280, 768);
+  // Felt weave on rect
+  pctx.globalAlpha = 0.05;
+  for (let i = 0; i < 160; i++) {
+    pctx.strokeStyle = i % 2 ? '#fff' : '#000';
+    pctx.lineWidth = 0.6;
+    pctx.beginPath();
+    pctx.moveTo(Math.random()*1280, 0);
+    pctx.lineTo(Math.random()*1280, 768);
+    pctx.stroke();
+  }
+  pctx.globalAlpha = 1;
+  // World→canvas mapping for the rect panel (centred at (0, 0.005, RECT_Z), spans RECT_W × RECT_H)
+  // World x in [-RECT_W/2, +RECT_W/2] → canvas x in [0, 1280]
+  // World z in [RECT_Z - RECT_H/2, RECT_Z + RECT_H/2] = [0.30, 4.50] → canvas y in [0, 768]
+  const RX = (x) => (x + RECT_W/2) * (1280 / RECT_W);
+  const RZ = (z) => (z - (RECT_Z - RECT_H/2)) * (768 / RECT_H);
+  // Outer gold frame
+  pctx.strokeStyle = '#d4a23a';
+  pctx.lineWidth = 14;
+  pctx.shadowColor = 'rgba(243, 210, 122, 0.55)';
+  pctx.shadowBlur = 12;
+  pctx.strokeRect(8, 8, 1280 - 16, 768 - 16);
+  pctx.shadowBlur = 0;
+  // Inner dashed gold trim
+  pctx.lineWidth = 2;
+  pctx.strokeStyle = 'rgba(243, 210, 122, 0.55)';
+  pctx.setLineDash([10, 14]);
+  pctx.strokeRect(28, 28, 1280 - 56, 768 - 56);
+  pctx.setLineDash([]);
+  // Engraved betting-grid lines (horizontal row dividers + vertical column dividers)
+  pctx.strokeStyle = 'rgba(243, 210, 122, 0.45)';
+  pctx.lineWidth = 2;
+  // Horizontal rows
   [1.32, 2.275, 3.22].forEach(zMid => {
-    ctx.beginPath();
-    ctx.moveTo(fLeft, W2CZ(zMid));
-    ctx.lineTo(fRight, W2CZ(zMid));
-    ctx.stroke();
+    const y = RZ(zMid);
+    pctx.beginPath(); pctx.moveTo(40, y); pctx.lineTo(1280 - 40, y); pctx.stroke();
   });
-  // Vertical column dividers
+  // Vertical columns (4-column grid)
   [-1.60, 0.0, 1.60].forEach(xMid => {
-    ctx.beginPath();
-    ctx.moveTo(W2CX(xMid), fTop);
-    ctx.lineTo(W2CX(xMid), fBot);
-    ctx.stroke();
+    const x = RX(xMid);
+    pctx.beginPath(); pctx.moveTo(x, 40); pctx.lineTo(x, 768 - 40); pctx.stroke();
   });
-  ctx.restore();
 
-  // === Build felt mesh ===
-  const feltTex = new THREE.CanvasTexture(c);
-  feltTex.anisotropy = 16;
-  feltTex.encoding = THREE.sRGBEncoding;
-
-  const feltGeo = new THREE.ShapeGeometry(tableShape, 64);
-  // Custom UVs: normalise shape (x, y) to [0, 1] over the bounding box so the
-  // canvas texture covers the entire D-shape without tiling.
-  {
-    const uvAttr  = feltGeo.attributes.uv;
-    const posAttr = feltGeo.attributes.position;
-    for (let i = 0; i < uvAttr.count; i++) {
-      const x = posAttr.getX(i), y = posAttr.getY(i);
-      uvAttr.setXY(i,
-        (x + TABLE_HALF_W) / SHAPE_W,
-        (y + TABLE_PLAYER_LEN) / SHAPE_H
-      );
-    }
-    uvAttr.needsUpdate = true;
-  }
-  const feltMat = new THREE.MeshStandardMaterial({
-    map: feltTex, roughness: 0.92, metalness: 0.0,
-    side: THREE.DoubleSide,    // safety: render both sides so winding quirks can't hide the felt
+  const rectFeltTex = new THREE.CanvasTexture(rectFeltCanvas);
+  rectFeltTex.anisotropy = 16;
+  rectFeltTex.encoding = THREE.sRGBEncoding;
+  const rectFeltMat = new THREE.MeshStandardMaterial({
+    map: rectFeltTex, roughness: 0.92, metalness: 0.0,
   });
-  const felt = new THREE.Mesh(feltGeo, feltMat);
-  felt.rotation.x = -Math.PI/2;
-  felt.position.y = 0.005;
-  felt.receiveShadow = true;
-  tableGroup.add(felt);
+  const rectFelt = new THREE.Mesh(
+    new THREE.PlaneGeometry(RECT_W, RECT_H),
+    rectFeltMat
+  );
+  rectFelt.rotation.x = -Math.PI/2;
+  rectFelt.position.set(0, 0.007, RECT_Z);   // slightly above the round felt so it visually overlays
+  rectFelt.receiveShadow = true;
+  tableGroup.add(rectFelt);
 
   scene.add(tableGroup);
 }
