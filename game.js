@@ -180,6 +180,12 @@ const elSpeechEn  = $("#speechEn");
 const elBanner    = $("#banner");
 const elBannerCn  = $("#bannerCn");
 const elBannerEn  = $("#bannerEn");
+const elAnalysis   = $("#resultAnalysis");
+const elAnalysisCn = $("#analysisCn");
+const elAnalysisEn = $("#analysisEn");
+const elAnalysisDice    = $("#analysisDice");
+const elAnalysisFormula = $("#analysisFormula");
+const elAnalysisPay     = $("#analysisPay");
 const elWinOver   = $("#winOverlay");
 const elWinCn     = $("#winCn");
 const elWinEn     = $("#winEn");
@@ -228,6 +234,61 @@ function showWinOverlay(cn, en, amount) {
   elWinOver.classList.add("show");
 }
 function hideWinOverlay() { elWinOver.classList.remove("show"); }
+
+// Build a human-readable description of what the dice show ("4 × 4", "5 × 3 同点",
+// "1·2·3·4·5·6 顺子", etc.) so the player can see exactly why they won/lost.
+function describeFormation(diceValues, tier) {
+  const counts = [0,0,0,0,0,0,0];
+  diceValues.forEach(d => counts[d]++);
+  const c4 = counts[4];
+  const r4 = '<span class="pip-red">4</span>';
+  const r1 = '<span class="pip-red">1</span>';
+
+  if (tier === 'supreme') {
+    if (c4 === 6) return `6 × ${r4}`;
+    if (c4 === 4 && counts[1] === 2) return `4 × ${r4} &nbsp;+&nbsp; 2 × ${r1} <span class="pip-cn">· 插金花</span>`;
+  }
+  if (tier === 'super_champion') {
+    if (c4 === 5) return `5 × ${r4} &nbsp;+&nbsp; 1 other`;
+    for (let v = 1; v <= 6; v++) if (v !== 4 && counts[v] === 6) return `6 × ${v} <span class="pip-cn">同点</span>`;
+  }
+  if (tier === 'champion') {
+    if (c4 === 4) return `4 × ${r4} &nbsp;+&nbsp; 2 other`;
+    for (let v = 1; v <= 6; v++) if (v !== 4 && counts[v] === 5) return `5 × ${v} <span class="pip-cn">同点</span>`;
+  }
+  if (tier === 'second_place') return `1 · 2 · 3 · ${r4} · 5 · 6 <span class="pip-cn">顺子</span>`;
+  if (tier === 'third_place')  return `3 × ${r4} &nbsp;+&nbsp; 3 other`;
+  if (tier === 'doctor') {
+    for (let v = 1; v <= 6; v++) if (v !== 4 && counts[v] === 4) return `4 × ${v} <span class="pip-cn">同点</span>`;
+  }
+  if (tier === 'graduate') return `2 × ${r4} &nbsp;+&nbsp; 4 other`;
+  if (tier === 'showman')  return `1 × ${r4} &nbsp;+&nbsp; 5 other`;
+  if (tier === 'miss')     return `<span class="pip-cn">无四点 · 无组合</span>`;
+  return '';
+}
+
+// Populate and reveal the result-analysis panel for `ms` milliseconds, then hide.
+async function showResultAnalysis(diceValues, winningIndices, tierKey, ms = 2800) {
+  const tierDef = TIERS[tierKey];
+  elAnalysisCn.textContent = tierDef.cn;
+  elAnalysisEn.textContent = tierDef.en;
+  elAnalysisFormula.innerHTML = describeFormation(diceValues, tierKey);
+  elAnalysisPay.textContent = tierDef.pay === 'JP' ? 'JACKPOT' : (tierDef.pay + ' : 1');
+
+  // Build dice icon row with winning ones highlighted
+  const winSet = new Set(winningIndices);
+  elAnalysisDice.innerHTML = diceValues.map((v, i) => {
+    const cls = ['die-icon'];
+    if (v === 1 || v === 4) cls.push('red-face');
+    if (winSet.has(i))      cls.push('winning');
+    return `<div class="${cls.join(' ')}" data-value="${v}">${v}</div>`;
+  }).join('');
+
+  elAnalysis.classList.add('show');
+  await sleep(ms);
+  elAnalysis.classList.remove('show');
+  await sleep(280);                                 // let the fade-out finish before next overlay
+}
 
 // ============================================================ GAME LOGIC
 function classify(dice) {
@@ -1961,10 +2022,17 @@ async function settle(finalDice) {
   const mainTier = result.tier;
   const tierDef = TIERS[mainTier];
 
-  // Highlight winning dice
+  // Highlight winning dice in the 3D scene
   result.winningDice.forEach(i => { dice[i].userData.winning = true; });
 
-  // Highlight main winning zone (and lose for others with bets)
+  // === PRE-PAYOUT REVEAL: show the player exactly which formation landed ===
+  // Wait long enough for the dice to visibly come to rest and the camera to settle,
+  // then surface the analysis panel (dice icons + formation breakdown + tier name + payout).
+  await sleep(550);
+  await showResultAnalysis(finalDice, result.winningDice, mainTier, 2800);
+
+  // Highlight main winning zone (and mark losers) AFTER the reveal so the
+  // table changes register only once the player understands the formation.
   const mainGroup = zoneByTier[mainTier];
   if (mainGroup) mainGroup.userData._win = true;
 

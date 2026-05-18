@@ -229,6 +229,154 @@ body {
   margin-top: 6px;
 }
 
+/* ============================================================ RESULT ANALYSIS PANEL */
+/* Shown after the dice settle and BEFORE the win/lose celebration, so the
+   player can see exactly which formation the dice landed in. */
+.result-analysis {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0.85);
+  z-index: 60;
+  padding: 26px 44px 24px;
+  border: 2px solid var(--c-gold-1);
+  border-radius: 18px;
+  background:
+    radial-gradient(ellipse at top, rgba(139, 0, 0, 0.88), rgba(20, 4, 8, 0.95));
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .35s ease, transform .45s cubic-bezier(.34, 1.56, .64, 1);
+  box-shadow: var(--glow-gold), 0 0 80px rgba(255, 60, 60, .6), inset 0 0 40px rgba(0,0,0,.55);
+  max-width: 90vw;
+  overflow: hidden;
+}
+.result-analysis::before {
+  content: "";
+  position: absolute; inset: 0;
+  background: linear-gradient(110deg, transparent 40%, rgba(255,255,255,.10) 50%, transparent 60%);
+  transform: translateX(-100%);
+  animation: shimmer 3.2s linear infinite;
+  pointer-events: none;
+}
+.result-analysis.show {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.analysis-tier {
+  margin-bottom: 14px;
+}
+.analysis-cn {
+  font-family: var(--font-cn);
+  font-size: 44px;
+  letter-spacing: 8px;
+  background: linear-gradient(180deg, #fff7c0, var(--c-gold-1) 55%, #ff8a3c);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  line-height: 1;
+  text-shadow: 0 2px 8px rgba(0,0,0,.5);
+}
+.analysis-en {
+  font-family: var(--font-en);
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: 7px;
+  color: var(--c-gold-1);
+  margin-top: 6px;
+}
+
+.analysis-dice {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin: 16px 0;
+}
+.die-icon {
+  width: 56px;
+  height: 56px;
+  background: linear-gradient(155deg, #fffaf2 0%, #f3e3c6 60%, #d6b886 100%);
+  border: 2px solid rgba(110, 78, 10, 0.5);
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Cinzel", serif;
+  font-size: 28px;
+  font-weight: 900;
+  color: #2a0006;
+  box-shadow:
+    inset 0 -3px 0 rgba(0,0,0,.18),
+    inset 0 2px 0 rgba(255,255,255,.7),
+    0 4px 10px rgba(0,0,0,.5);
+  transition: all .25s ease;
+  position: relative;
+}
+/* Red faces (1 and 4) — match the physical dice colour scheme */
+.die-icon.red-face { color: #b00018; }
+/* Winning dice — gold border, glowing emissive, scale-up pulse */
+.die-icon.winning {
+  border-color: #f3d27a;
+  box-shadow:
+    inset 0 -3px 0 rgba(0,0,0,.18),
+    inset 0 2px 0 rgba(255,255,255,.85),
+    0 0 18px rgba(243, 210, 122, 0.85),
+    0 0 36px rgba(255, 200, 80, 0.5),
+    0 4px 10px rgba(0,0,0,.5);
+  animation: dieIconWin 0.85s ease-in-out infinite alternate;
+}
+@keyframes dieIconWin {
+  0%   { transform: scale(1)    translateY(0); }
+  100% { transform: scale(1.10) translateY(-3px); }
+}
+
+.analysis-formation {
+  margin-top: 4px;
+}
+.analysis-formula {
+  font-family: "Cinzel", serif;
+  font-weight: 900;
+  font-size: 28px;
+  letter-spacing: 4px;
+  color: #ffe681;
+  text-shadow: 0 0 14px rgba(255, 200, 80, 0.7);
+}
+.analysis-formula .pip-red { color: #ff6464; font-weight: 900; }
+.analysis-formula .pip-cn  { color: #f3d27a; font-family: var(--font-cn); font-size: 22px; letter-spacing: 3px; }
+.analysis-label {
+  font-family: var(--font-en);
+  font-size: 10px;
+  letter-spacing: 5px;
+  color: rgba(243, 210, 122, 0.6);
+  margin-top: 4px;
+}
+
+.analysis-pay {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(243, 210, 122, 0.35);
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: 14px;
+}
+.analysis-pay-label {
+  font-family: var(--font-en);
+  font-size: 11px;
+  letter-spacing: 6px;
+  color: rgba(243, 210, 122, 0.75);
+  font-weight: 900;
+}
+.analysis-pay-value {
+  font-family: var(--font-en);
+  font-weight: 900;
+  font-size: 32px;
+  letter-spacing: 4px;
+  color: #ffe681;
+  text-shadow: 0 0 16px var(--c-gold-1);
+}
+
 /* ============================================================ WIN OVERLAY */
 .win-overlay {
   position: fixed;
