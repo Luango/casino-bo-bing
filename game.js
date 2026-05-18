@@ -951,13 +951,35 @@ function releaseDie(i) {
   AUDIO.play('dieThrow', { vol: 0.85, rate: 0.92 + Math.random() * 0.16 });
 }
 
-// Sequentially drop all 6 dice with a delay between each one (dramatic intro).
+// Wait for a specific die to actually land on the felt (and briefly settle) so
+// the next drop only starts AFTER the previous die has visibly hit the table.
+// Cap by maxMs as a safety so the sequence can't get stuck.
+async function waitForDieToLand(i, maxMs = 900) {
+  const body = diceBodies[i];
+  const tStart = performance.now();
+  let landed = false;
+  let landedAt = 0;
+  while (performance.now() - tStart < maxMs) {
+    await sleep(40);
+    // "Landed" = die centre is at floor height-ish (half-size + a little tolerance)
+    if (!landed && body.position.y < 0.45) {
+      landed = true;
+      landedAt = performance.now();
+    }
+    // After landing, give it a short beat to bounce before the next drop
+    if (landed && performance.now() - landedAt > 180) return;
+  }
+}
+
+// Sequentially drop all 6 dice, waiting for each one to land before releasing
+// the next. Total throw time scales with how fast each die falls and settles,
+// but is bounded by the per-die maxMs so the round never feels stuck.
 async function throwDice() {
   parkDice();
-  await sleep(220);                                      // brief anticipation pause
+  await sleep(280);                                      // anticipation pause
   for (let i = 0; i < diceBodies.length; i++) {
     releaseDie(i);
-    await sleep(230);                                    // delay between drops
+    await waitForDieToLand(i, 900);                      // wait for THIS die to land
   }
 }
 
