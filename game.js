@@ -500,14 +500,15 @@ const TABLE_PLAYER_LEN   = 5.0;    // distance from the meeting line (z=0) to th
   const tableGroup = new THREE.Group();
 
   // === D-shape outline (used for base, felt, and the gold edge) ===
-  // In shape coordinates: y > 0 is the dealer side, y < 0 is the player side
-  // (after the -PI/2 X rotation, shape y maps to world -z, so dealer ends up at world z < 0).
+  // Traced in CCW order in shape XY so the resulting normals point in +Z,
+  // which becomes +Y after the felt's -PI/2 X rotation — i.e. the front face
+  // points UP at the camera. (Tracing CW makes the felt invisible from above.)
   const tableShape = new THREE.Shape();
-  tableShape.moveTo( TABLE_HALF_W, 0);                                  // top-right of rectangle (meeting line)
-  tableShape.lineTo( TABLE_HALF_W, -TABLE_PLAYER_LEN);                  // right edge down to player corner
-  tableShape.lineTo(-TABLE_HALF_W, -TABLE_PLAYER_LEN);                  // across the player edge
-  tableShape.lineTo(-TABLE_HALF_W, 0);                                  // left edge up to meeting line
-  tableShape.absarc(0, 0, TABLE_DEALER_R, Math.PI, 0, true);            // arc over the dealer end (CW)
+  tableShape.moveTo( TABLE_HALF_W, 0);                                  // start at top-right (meeting line)
+  tableShape.absarc(0, 0, TABLE_DEALER_R, 0, Math.PI, false);           // arc CCW over dealer end through (0, +R)
+  tableShape.lineTo(-TABLE_HALF_W, -TABLE_PLAYER_LEN);                  // down left side to player corner
+  tableShape.lineTo( TABLE_HALF_W, -TABLE_PLAYER_LEN);                  // across the player edge
+  tableShape.lineTo( TABLE_HALF_W, 0);                                  // up right side, closes the shape
 
   // === Wooden base ===
   const baseMat = new THREE.MeshStandardMaterial({
@@ -677,7 +678,8 @@ const TABLE_PLAYER_LEN   = 5.0;    // distance from the meeting line (z=0) to th
     uvAttr.needsUpdate = true;
   }
   const feltMat = new THREE.MeshStandardMaterial({
-    map: feltTex, roughness: 0.92, metalness: 0.0
+    map: feltTex, roughness: 0.92, metalness: 0.0,
+    side: THREE.DoubleSide,    // safety: render both sides so winding quirks can't hide the felt
   });
   const felt = new THREE.Mesh(feltGeo, feltMat);
   felt.rotation.x = -Math.PI/2;
