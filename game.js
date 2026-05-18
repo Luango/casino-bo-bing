@@ -42,25 +42,28 @@ const LINES = {
 
 // Bet zone layout on the table (top-down coordinates)
 // X: -3.6 .. 3.6 (table radius ~4.2). Z: -3.0 (far/dealer) .. +3.0 (near/player)
+// Roulette / blackjack-style layout: the dice arena sits at the dealer end of
+// the table (z ≈ -1.4), and ALL bet zones are organized in 4 clean rows on the
+// player side, with the lowest-payout/side bets closest to the player (like
+// roulette "outside bets") and the high tiers nearest the arena.
 const ZONES = [
-  // Far row — high tiers near dealer (z ≈ -2.85)
-  { tier:'super_champion', x:-2.45, z:-2.70, w:1.55, h:0.90, color:0xff8c42 },
-  { tier:'supreme',        x:  0.0, z:-2.85, w:1.65, h:1.05, color:0xff4d6d, supreme:true },
-  { tier:'champion',       x: 2.45, z:-2.70, w:1.55, h:0.90, color:0xf5c14a },
-  // Outer-mid (left/right of bowl, top row)
-  { tier:'second_place',   x:-3.15, z:-1.05, w:1.15, h:0.85, color:0x6ce5ff },
-  { tier:'third_place',    x: 3.15, z:-1.05, w:1.15, h:0.85, color:0xff5a5a },
-  // Outer-mid (left/right of bowl, bottom row)
-  { tier:'doctor',         x:-3.15, z: 0.55, w:1.15, h:0.85, color:0xb88ff5 },
-  { tier:'graduate',       x: 3.15, z: 0.55, w:1.15, h:0.85, color:0xd4a23a },
-  // Near row — closer to player
-  { tier:'showman',        x:-1.20, z: 1.75, w:1.40, h:0.78, color:0xB8860B },
-  { tier:'miss',           x: 1.20, z: 1.75, w:1.40, h:0.78, color:0x808080 },
-  // Side bets — very front strip
-  { tier:'red',         x:-2.65, z: 2.85, w:1.05, h:0.55, color:0xff5050, side:true },
-  { tier:'tie',         x:-0.88, z: 2.85, w:1.05, h:0.55, color:0x6ce28a, side:true },
-  { tier:'black',       x: 0.88, z: 2.85, w:1.05, h:0.55, color:0x444444, side:true },
-  { tier:'jackpot_bet', x: 2.65, z: 2.85, w:1.05, h:0.55, color:0xffb86b, side:true },
+  // Row 1 — High tiers, just in front of the arena (z = +0.55)
+  { tier:'super_champion', x:-2.50, z: 0.55, w:1.55, h:0.78, color:0xff8c42 },
+  { tier:'supreme',        x: 0.00, z: 0.55, w:1.75, h:0.95, color:0xff4d6d, supreme:true },
+  { tier:'champion',       x: 2.50, z: 0.55, w:1.55, h:0.78, color:0xf5c14a },
+  // Row 2 — Mid tiers (z = +1.55)
+  { tier:'second_place',   x:-3.00, z: 1.55, w:1.20, h:0.85, color:0x6ce5ff },
+  { tier:'third_place',    x:-1.10, z: 1.55, w:1.20, h:0.85, color:0xff5a5a },
+  { tier:'doctor',         x: 1.10, z: 1.55, w:1.20, h:0.85, color:0xb88ff5 },
+  { tier:'graduate',       x: 3.00, z: 1.55, w:1.20, h:0.85, color:0xd4a23a },
+  // Row 3 — Basic tiers (z = +2.55)
+  { tier:'showman',        x:-1.30, z: 2.55, w:1.55, h:0.85, color:0xB8860B },
+  { tier:'miss',           x: 1.30, z: 2.55, w:1.55, h:0.85, color:0x808080 },
+  // Row 4 — Side bets, closest to player (z = +3.45)
+  { tier:'red',         x:-3.05, z: 3.45, w:1.20, h:0.60, color:0xff5050, side:true },
+  { tier:'tie',         x:-1.02, z: 3.45, w:1.20, h:0.60, color:0x6ce28a, side:true },
+  { tier:'black',       x: 1.02, z: 3.45, w:1.20, h:0.60, color:0x444444, side:true },
+  { tier:'jackpot_bet', x: 3.05, z: 3.45, w:1.20, h:0.60, color:0xffb86b, side:true },
 ];
 
 // ============================================================ STATE
@@ -271,38 +274,39 @@ renderer.toneMappingExposure = 1.0;
 const scene = new THREE.Scene();
 scene.fog = new THREE.Fog(0x080205, 12, 30);
 
-const camera = new THREE.PerspectiveCamera(58, window.innerWidth/window.innerHeight, 0.1, 100);
-camera.position.set(0, 6.0, 8.4);
-camera.lookAt(0, 0.0, -0.7);
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 100);
+camera.position.set(0, 7.6, 10.6);
+camera.lookAt(0, 0.0, 0.6);
 
 // ============================================================ MULTI-VIEW CAMERA SYSTEM
 // Distinct camera positions for each game phase, lerped between Inscryption-style.
 const VIEWS = {
+  // Casino overview — dealer at top, arena at the dealer end, bet zones in the middle, chip rack at the bottom
   betting: {
-    pos:  new THREE.Vector3(0,   6.0,  8.4),
-    look: new THREE.Vector3(0,   0.0, -0.7),
-    fov: 58,
+    pos:  new THREE.Vector3(0,   7.6, 10.6),
+    look: new THREE.Vector3(0,   0.0,  0.6),
+    fov: 60,
     speed: 2.4,
   },
-  // Lever-pull / dice tumbling — camera pulls back to take in the dramatic free-fall onto the felt
+  // Lever-pull / dice tumbling — camera moves over the shifted arena (z = -1.4)
   rolling: {
-    pos:  new THREE.Vector3(0,   3.4,  4.4),
-    look: new THREE.Vector3(0,   0.55, 0.0),
-    fov: 56,
+    pos:  new THREE.Vector3(0,   3.6,  2.6),
+    look: new THREE.Vector3(0,   0.55, -1.4),
+    fov: 54,
     speed: 1.8,
   },
-  // Result reveal — pulled back and slightly higher, dramatic wide angle to take in the table
+  // Result reveal — pull back wide so the winning row reads from any zone
   payout: {
-    pos:  new THREE.Vector3(0,   7.2,  9.4),
-    look: new THREE.Vector3(0,   0.0, -0.8),
+    pos:  new THREE.Vector3(0,   8.4, 11.4),
+    look: new THREE.Vector3(0,   0.0,  0.5),
     fov: 64,
     speed: 2.6,
   },
   // Brief look at the dealer character (used on jackpot / big wins)
   dealer: {
-    pos:  new THREE.Vector3(0,   3.6,  2.2),
-    look: new THREE.Vector3(0,   2.95, -4.6),
-    fov: 46,
+    pos:  new THREE.Vector3(0,   4.4,  0.6),
+    look: new THREE.Vector3(0,   3.55, -5.95),
+    fov: 44,
     speed: 2.2,
   },
 };
@@ -313,8 +317,8 @@ const camView = {
   lookVec:    new THREE.Vector3().copy(VIEWS.betting.look),
   targetPos:  new THREE.Vector3().copy(VIEWS.betting.pos),
   targetLook: new THREE.Vector3().copy(VIEWS.betting.look),
-  targetFov:  58,
-  speed: 2.4,
+  targetFov:  VIEWS.betting.fov,
+  speed: VIEWS.betting.speed,
 };
 
 function setView(name) {
@@ -490,7 +494,7 @@ function makeLantern(color = 0xc41020) {
   const tableGroup = new THREE.Group();
 
   // Outer wood base
-  const baseGeo = new THREE.CylinderGeometry(4.0, 4.2, 0.55, 56);
+  const baseGeo = new THREE.CylinderGeometry(5.06, 5.25, 0.55, 64);
   const baseMat = new THREE.MeshStandardMaterial({
     color: 0x180306, roughness: 0.85, metalness: 0.05
   });
@@ -546,18 +550,23 @@ function makeLantern(color = 0xc41020) {
   }
   ctx.globalAlpha = 1;
 
-  // 中央 moon-shaped circle outline where the bowl sits
-  ctx.strokeStyle = 'rgba(243, 210, 122, 0.4)';
-  ctx.lineWidth = 2;
-  ctx.setLineDash([6, 8]);
-  ctx.beginPath(); ctx.arc(512, 512, 200, 0, Math.PI*2); ctx.stroke();
+  // Decorative dashed gold "lane" dividing dealer half from player half of the table
+  // (replaces the old centred bowl marker — the arena is no longer at the table centre).
+  ctx.strokeStyle = 'rgba(243, 210, 122, 0.45)';
+  ctx.lineWidth = 3;
+  ctx.setLineDash([14, 18]);
+  // Mid-table dividing line (canvas y = 512 corresponds to world z = 0 with the new mapping)
+  ctx.beginPath();
+  ctx.moveTo(60, 512);
+  ctx.lineTo(1024 - 60, 512);
+  ctx.stroke();
   ctx.setLineDash([]);
 
   const feltTex = new THREE.CanvasTexture(c);
   feltTex.anisotropy = 16;
   feltTex.encoding = THREE.sRGBEncoding;
 
-  const feltGeo = new THREE.CircleGeometry(3.92, 64);
+  const feltGeo = new THREE.CircleGeometry(5.0, 72);
   const feltMat = new THREE.MeshStandardMaterial({
     map: feltTex, roughness: 0.92, metalness: 0.0
   });
@@ -569,7 +578,7 @@ function makeLantern(color = 0xc41020) {
 
   // Gold trim torus
   const trim = new THREE.Mesh(
-    new THREE.TorusGeometry(3.95, 0.06, 14, 96),
+    new THREE.TorusGeometry(5.03, 0.07, 14, 96),
     new THREE.MeshStandardMaterial({ color: 0xd4a23a, roughness: 0.32, metalness: 0.95 })
   );
   trim.rotation.x = Math.PI/2;
@@ -582,8 +591,9 @@ function makeLantern(color = 0xc41020) {
 // ============================================================ DICE ARENA (no dome — open table)
 // A flat gold ring on the felt marks where the dice land. Replaces the old glass dome.
 const ARENA_RADIUS = 1.55;
+const ARENA_CENTER_Z = -1.4;      // dice arena pushed toward the dealer end of the table
 const arenaGroup = new THREE.Group();
-arenaGroup.position.set(0, 0, 0);
+arenaGroup.position.set(0, 0, ARENA_CENTER_Z);
 {
   // Slightly darkened felt circle inside the play area for visual contrast
   const arenaPad = new THREE.Mesh(
@@ -751,13 +761,15 @@ function makeDie() {
 }
 
 const dice = [];
+// Initial mesh positions before presettleDice overrides them. Offset to the arena centre.
+const _A_Z = -1.4; // arena centre Z (matches ARENA_CENTER_Z defined later)
 const DICE_RESTING_POSITIONS = [
-  [-0.52,  0.28, -0.32],
-  [ 0.00,  0.28, -0.32],
-  [ 0.52,  0.28, -0.32],
-  [-0.52,  0.28,  0.26],
-  [ 0.00,  0.28,  0.26],
-  [ 0.52,  0.28,  0.26],
+  [-0.52,  0.28, -0.32 + _A_Z],
+  [ 0.00,  0.28, -0.32 + _A_Z],
+  [ 0.52,  0.28, -0.32 + _A_Z],
+  [-0.52,  0.28,  0.26 + _A_Z],
+  [ 0.00,  0.28,  0.26 + _A_Z],
+  [ 0.52,  0.28,  0.26 + _A_Z],
 ];
 for (let i = 0; i < 6; i++) {
   const d = makeDie();
@@ -805,15 +817,19 @@ world.addContactMaterial(new CANNON.ContactMaterial(_diceMat, _diceMat, {
   b.position.set(0, 5.0, 0);
   world.addBody(b);
 }
-// Invisible containment walls keep the dice in the central play area (no dome — just an open ring).
-// Slightly larger radius than the visible gold ring so dice can roll right up against the edge.
+// Invisible containment walls keep the dice in the arena (an open ring on the felt).
+// Centred on the shifted arena position, not at world origin.
 const BOWL_WALL_RADIUS = ARENA_RADIUS + 0.05;
 const BOWL_WALL_SEGMENTS = 16;
 for (let i = 0; i < BOWL_WALL_SEGMENTS; i++) {
   const a = (i / BOWL_WALL_SEGMENTS) * Math.PI * 2;
   const b = new CANNON.Body({ mass: 0, shape: new CANNON.Plane(), material: _floorMat });
-  b.position.set(Math.cos(a) * BOWL_WALL_RADIUS, 1.0, Math.sin(a) * BOWL_WALL_RADIUS);
-  // Rotate +Z (default plane normal) to point toward origin
+  b.position.set(
+    Math.cos(a) * BOWL_WALL_RADIUS,
+    1.0,
+    Math.sin(a) * BOWL_WALL_RADIUS + ARENA_CENTER_Z
+  );
+  // Rotate +Z (default plane normal) to point toward the arena centre
   b.quaternion.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), -a - Math.PI/2);
   world.addBody(b);
 }
@@ -856,6 +872,7 @@ function parkDice() {
 
 // Pre-allocated 2x3 grid of drop columns so each die lands in its own cell
 // (prevents stacking when six dice are dropped sequentially into the same area).
+// Z values are offsets RELATIVE to the arena centre; ARENA_CENTER_Z is added below.
 const SPAWN_GRID = [
   [-0.85, -0.55],
   [ 0.00, -0.62],
@@ -863,7 +880,7 @@ const SPAWN_GRID = [
   [-0.85,  0.55],
   [ 0.00,  0.62],
   [ 0.85,  0.55],
-];
+].map(([x, z]) => [x, z + ARENA_CENTER_Z]);
 
 // Drop a single die onto the felt with light initial velocity + heavy spin.
 // The die appears high above its assigned grid cell and free-falls dramatically.
@@ -1006,7 +1023,7 @@ function presettleDice() {
     body.position.set(
       Math.cos(ang) * 0.30,
       0.70 + Math.random() * 0.20,
-      Math.sin(ang) * 0.30
+      Math.sin(ang) * 0.30 + ARENA_CENTER_Z
     );
     body.quaternion.setFromEuler(
       Math.random()*Math.PI*2, Math.random()*Math.PI*2, Math.random()*Math.PI*2, 'XYZ'
@@ -1158,8 +1175,8 @@ ZONES.forEach(z => {
 // ============================================================ CHIP RACK (3D)
 const rackChips = [];      // for raycaster
 const rackGroup = new THREE.Group();
-rackGroup.position.set(0, 0.55, 4.05);
-rackGroup.rotation.x = -0.15; // tilt slightly toward camera for visibility
+rackGroup.position.set(0, 0.55, 5.55);     // on the player's edge of the table
+rackGroup.rotation.x = -0.18; // tilt slightly toward camera for visibility
 scene.add(rackGroup);
 
 function makeChipMesh(value, color, radius = 0.21, height = 0.04) {
@@ -1262,7 +1279,7 @@ function makeChipMesh(value, color, radius = 0.21, height = 0.04) {
 
 // ============================================================ LEVER
 const lever = new THREE.Group();
-lever.position.set(4.8, 0, 2.6);
+lever.position.set(5.4, 0, 4.0);
 scene.add(lever);
 
 const leverArm = new THREE.Group(); // pivot
@@ -1324,8 +1341,8 @@ let _leverKnobMesh;
 
 // ============================================================ DEALER CHARACTER
 const dealer = new THREE.Group();
-dealer.position.set(0, 0, -4.6);
-dealer.scale.setScalar(1.15);
+dealer.position.set(0, 0, -6.0);          // behind the larger (r=5.0) table
+dealer.scale.setScalar(1.25);              // slightly bigger so the dealer reads at the new distance
 scene.add(dealer);
 
 let _dealerEyes = [];
